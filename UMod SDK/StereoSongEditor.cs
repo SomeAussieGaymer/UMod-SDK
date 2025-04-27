@@ -56,7 +56,7 @@ namespace Tools
 
         private void SaveSongFile(StereoSongAsset asset)
         {
-            string songText = GetText(asset);
+            string songText = asset.GetExportText();
             string fileName = asset.name;
 
             string path = EditorUtility.SaveFilePanel(
@@ -71,47 +71,6 @@ namespace Tools
                 File.WriteAllText(path, songText);
                 AssetDatabase.Refresh();
             }
-        }
-
-        public string GetText(StereoSongAsset asset)
-        {
-            string text = "";
-
-            text += "GUID " + asset.guid + "\n";
-            text += "Type " + "SDG.Unturned.StereoSongAsset, Assembly-CSharp, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" + "\n";
-            text += "ID " + "0" + "\n";
-
-            if (!string.IsNullOrEmpty(asset.title))
-            {
-                text += "Title \"" + asset.title + "\"\n";
-            }
-            else if (!string.IsNullOrEmpty(asset.titleToken))
-            {
-                text += "Title\n{\n";
-                text += "    \"Namespace\" \"" + asset.titleNamespace + "\"\n";
-                text += "    \"Token\" \"" + asset.titleToken + "\"\n";
-                text += "}\n";
-            }
-
-            if (!string.IsNullOrEmpty(asset.songAssetPath))
-            {
-                text += "Song\n{\n";
-                text += "    \"MasterBundle\" \"" + asset.songBundleName + "\"\n";
-                text += "    \"AssetPath\" \"" + asset.songAssetPath + "\"\n";
-                text += "}\n";
-            }
-
-            if (!string.IsNullOrEmpty(asset.linkURL))
-            {
-                text += "Link_URL \"" + asset.linkURL + "\"\n";
-            }
-
-            if (asset.isLoop)
-            {
-                text += "Is_Loop true\n";
-            }
-
-            return text;
         }
 
         private void OnEnable()

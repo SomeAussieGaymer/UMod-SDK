@@ -419,8 +419,12 @@ namespace Tools
             }
             
             string vehicleText = GetText();
-            string fileName = string.IsNullOrEmpty(title) ? name : title;
+            string assetPath = AssetDatabase.GetAssetPath(this);
+            string fileName = Path.GetFileNameWithoutExtension(assetPath);
             
+            Debug.Log($"[Vehicle Save] Asset Path: {assetPath}");
+            Debug.Log($"[Vehicle Save] Derived Filename (no ext): {fileName}");
+
             foreach (char c in Path.GetInvalidFileNameChars())
             {
                 fileName = fileName.Replace(c, '_');
@@ -434,6 +438,7 @@ namespace Tools
             }
             
             string filePath = Path.Combine(folderPath, fileName + ".dat");
+            Debug.Log($"[Vehicle Save] Final FilePath: {filePath}");
             File.WriteAllText(filePath, vehicleText);
             
             Debug.Log("Vehicle DAT file saved to: " + filePath);

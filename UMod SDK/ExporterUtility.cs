@@ -533,8 +533,11 @@ namespace Tools
 
             foreach (var obj in allObjects)
             {
-                string objFolderPath = Path.Combine(folderPath, obj.name);
-                ExportObject(obj, objFolderPath);
+        
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(obj));
+                string objFolderPath = Path.Combine(folderPath, assetFileName);
+           
+                obj.SaveAllFiles(objFolderPath);
             }
 
             EditorUtility.DisplayDialog("Export Complete", "All objects have been exported successfully!", "OK");
@@ -580,16 +583,17 @@ namespace Tools
         {
             if (selectedVehicle == null) return;
 
-            string path = EditorUtility.SaveFilePanel(
-                "Export Vehicle Data",
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedVehicle));
+            string folderPath = EditorUtility.SaveFolderPanel(
+                "Select Export Folder for Vehicle",
                 "",
-                selectedVehicle.name + ".dat",
-                "dat"
-            );
+                suggestedName 
+            ); 
 
-            if (!string.IsNullOrEmpty(path))
+            if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportVehicle(selectedVehicle, path);
+                selectedVehicle.SaveAllFiles(folderPath); 
+                EditorUtility.DisplayDialog("Export Complete", $"Vehicle exported to: {folderPath}", "OK");
             }
         }
 
@@ -597,15 +601,17 @@ namespace Tools
         {
             if (selectedItem == null) return;
 
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedItem));
             string folderPath = EditorUtility.SaveFolderPanel(
-                "Export Item Data",
+                "Select Export Folder for Item",
                 "",
-                selectedItem.name
+                suggestedName 
             );
 
             if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportItem(selectedItem, folderPath);
+                selectedItem.SaveAllFiles(folderPath);
+                EditorUtility.DisplayDialog("Export Complete", $"Item exported to: {folderPath}", "OK");
             }
         }
 
@@ -613,15 +619,17 @@ namespace Tools
         {
             if (selectedObject == null) return;
 
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedObject));
             string folderPath = EditorUtility.SaveFolderPanel(
-                "Export Object Data",
+                "Select Export Folder for Object",
                 "",
-                selectedObject.name
+                suggestedName 
             );
 
             if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportObject(selectedObject, folderPath);
+                selectedObject.SaveAllFiles(folderPath); 
+                EditorUtility.DisplayDialog("Export Complete", $"Object exported to: {folderPath}", "OK");
             }
         }
 
@@ -629,16 +637,17 @@ namespace Tools
         {
             if (selectedMaterialPalette == null) return;
 
-            string path = EditorUtility.SaveFilePanel(
-                "Export Material Palette Data",
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedMaterialPalette));
+            string folderPath = EditorUtility.SaveFolderPanel(
+                "Select Export Folder for Material Palette",
                 "",
-                selectedMaterialPalette.name + ".asset",
-                "asset"
-            );
+                suggestedName 
+            ); 
 
-            if (!string.IsNullOrEmpty(path))
+            if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportMaterialPalette(selectedMaterialPalette, path);
+                selectedMaterialPalette.SaveAllFiles(folderPath); 
+                EditorUtility.DisplayDialog("Export Complete", $"Material Palette exported to: {folderPath}", "OK");
             }
         }
 
@@ -646,16 +655,17 @@ namespace Tools
         {
             if (selectedStereoSong == null) return;
 
-            string path = EditorUtility.SaveFilePanel(
-                "Export Stereo Song Data",
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedStereoSong));
+            string folderPath = EditorUtility.SaveFolderPanel(
+                "Select Export Folder for Stereo Song",
                 "",
-                selectedStereoSong.name + ".asset",
-                "asset"
+                suggestedName
             );
 
-            if (!string.IsNullOrEmpty(path))
+            if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportStereoSong(selectedStereoSong, path);
+                selectedStereoSong.SaveAllFiles(folderPath);
+                EditorUtility.DisplayDialog("Export Complete", $"Stereo Song exported to: {folderPath}", "OK");
             }
         }
 
@@ -663,259 +673,18 @@ namespace Tools
         {
             if (selectedFoliageResource == null) return;
 
-            string path = EditorUtility.SaveFilePanel(
-                "Export Foliage Resource Data",
+            string suggestedName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(selectedFoliageResource));
+            string folderPath = EditorUtility.SaveFolderPanel(
+                "Select Export Folder for Foliage Resource",
                 "",
-                selectedFoliageResource.assetName + ".asset",
-                "asset"
-            );
+                suggestedName 
+            ); 
 
-            if (!string.IsNullOrEmpty(path))
+            if (!string.IsNullOrEmpty(folderPath))
             {
-                ExportFoliageResource(selectedFoliageResource, path);
+                selectedFoliageResource.SaveAllFiles(folderPath); 
+                EditorUtility.DisplayDialog("Export Complete", $"Foliage Resource exported to: {folderPath}", "OK");
             }
-        }
-
-        public static void ExportVehicle(VehicleAsset vehicle, string outputPath)
-        {
-            if (vehicle == null)
-            {
-                Debug.LogError("Vehicle asset is null!");
-                return;
-            }
-
-            try
-            {
-                string directory = Path.GetDirectoryName(outputPath);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-                
-                string vehicleData = vehicle.GetText();
-                
-                if (Directory.Exists(outputPath))
-                {
-                    string fileName = string.IsNullOrEmpty(vehicle.title) ? vehicle.name : vehicle.title;
-                    
-                    foreach (char c in Path.GetInvalidFileNameChars())
-                    {
-                        fileName = fileName.Replace(c, '_');
-                    }
-                    fileName = fileName.Replace(' ', '_');
-                    
-                    if (string.IsNullOrWhiteSpace(fileName))
-                    {
-                        fileName = "Vehicle_" + vehicle.GetInstanceID();
-                        Debug.LogWarning($"Using fallback filename for vehicle: {fileName}");
-                    }
-                    
-                    outputPath = Path.Combine(outputPath, $"{fileName}.dat");
-                }
-                
-                File.WriteAllText(outputPath, vehicleData);
-                Debug.Log($"Vehicle data exported to: {outputPath}");
-                
-                string englishText = vehicle.GetEnglishText();
-                
-                if (!string.IsNullOrEmpty(englishText))
-                {
-                    string dir = Path.GetDirectoryName(outputPath);
-                    string englishPath = Path.Combine(dir, "English.dat");
-                    File.WriteAllText(englishPath, englishText);
-                    Debug.Log($"Vehicle English text exported to: {englishPath}");
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error exporting vehicle {vehicle.name}: {e.Message}\n{e.StackTrace}");
-            }
-        }
-
-        public static string GetVehicleData(VehicleAsset vehicle)
-        {
-            if (vehicle == null)
-            {
-                Debug.LogError("Vehicle asset is null!");
-                return null;
-            }
-
-            return vehicle.GetText();
-        }
-
-        public static void ExportItem(ItemDefinitionAsset item, string outputFolderPath)
-        {
-            if (item == null)
-            {
-                Debug.LogError("Item Definition asset is null!");
-                return;
-            }
-
-            try
-            {
-                if (!Directory.Exists(outputFolderPath))
-                {
-                    Directory.CreateDirectory(outputFolderPath);
-                }
-                
-                string itemData = item.GetText();
-                string englishData = item.GetEnglishLanguageText();
-                
-                string fileName = string.IsNullOrEmpty(item.nameEnglish) ? item.name : item.nameEnglish;
-                
-                foreach (char c in Path.GetInvalidFileNameChars())
-                {
-                    fileName = fileName.Replace(c, '_');
-                }
-                fileName = fileName.Replace(' ', '_');
-                
-                if (string.IsNullOrWhiteSpace(fileName))
-                {
-                    fileName = "Item_" + item.GetInstanceID();
-                    Debug.LogWarning($"Using fallback filename for item: {fileName}");
-                }
-                
-                string itemPath = Path.Combine(outputFolderPath, $"{fileName}.dat");
-                File.WriteAllText(itemPath, itemData);
-                Debug.Log($"Exported item file: {itemPath}");
-                
-                if (!string.IsNullOrEmpty(englishData))
-                {
-                    string englishPath = Path.Combine(outputFolderPath, "English.dat");
-                    File.WriteAllText(englishPath, englishData);
-                    Debug.Log($"Exported English file: {englishPath}");
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error exporting item {item.name}: {e.Message}\n{e.StackTrace}");
-            }
-        }
-
-        public static string GetItemData(ItemDefinitionAsset item)
-        {
-            if (item == null)
-            {
-                Debug.LogError("Item Definition asset is null!");
-                return null;
-            }
-
-            return item.GetText();
-        }
-
-        public static string GetItemEnglishData(ItemDefinitionAsset item)
-        {
-            if (item == null)
-            {
-                Debug.LogError("Item Definition asset is null!");
-                return null;
-            }
-
-            return item.GetEnglishLanguageText();
-        }
-
-        public static void ExportObject(ObjectDefinitionAsset obj, string outputFolderPath)
-        {
-            if (obj == null)
-            {
-                Debug.LogError("Object Definition asset is null!");
-                return;
-            }
-
-            try
-            {
-                if (!Directory.Exists(outputFolderPath))
-                {
-                    Directory.CreateDirectory(outputFolderPath);
-                }
-                
-                string objectData = obj.GetText();
-                
-                string fileName = string.IsNullOrEmpty(obj.nameEnglish) ? obj.name : obj.nameEnglish;
-                
-                foreach (char c in Path.GetInvalidFileNameChars())
-                {
-                    fileName = fileName.Replace(c, '_');
-                }
-                fileName = fileName.Replace(' ', '_');
-                
-                if (string.IsNullOrWhiteSpace(fileName))
-                {
-                    fileName = "Object_" + obj.GetInstanceID();
-                    Debug.LogWarning($"Using fallback filename for object: {fileName}");
-                }
-                
-                string objectPath = Path.Combine(outputFolderPath, $"{fileName}.dat");
-                File.WriteAllText(objectPath, objectData);
-                Debug.Log($"Exported object file: {objectPath}");
-                
-                StringBuilder sb = new StringBuilder();
-                if (!string.IsNullOrEmpty(obj.nameEnglish))
-                    sb.AppendLine("Name " + obj.nameEnglish);
-                if (!string.IsNullOrEmpty(obj.interactEnglish))
-                    sb.AppendLine("Interact " + obj.interactEnglish);
-                string englishText = sb.ToString();
-                
-                if (!string.IsNullOrEmpty(englishText))
-                {
-                    string englishPath = Path.Combine(outputFolderPath, "English.dat");
-                    File.WriteAllText(englishPath, englishText);
-                    Debug.Log($"Exported English file: {englishPath}");
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error exporting object {obj.name}: {e.Message}\n{e.StackTrace}");
-            }
-        }
-
-        public static string GetObjectData(ObjectDefinitionAsset obj)
-        {
-            if (obj == null)
-            {
-                Debug.LogError("Object Definition asset is null!");
-                return null;
-            }
-
-            return obj.GetText();
-        }
-
-        public static string GetObjectEnglishData(ObjectDefinitionAsset obj)
-        {
-            if (obj == null)
-            {
-                Debug.LogError("Object Definition asset is null!");
-                return null;
-            }
-
-            return obj.GetEnglishText();
-        }
-
-        public static void ExportMaterialPalette(MaterialPaletteAsset materialPalette, string outputPath)
-        {
-            if (materialPalette == null)
-            {
-                Debug.LogError("Material Palette asset is null!");
-                return;
-            }
-
-            string materialPaletteData = GetMaterialPaletteData(materialPalette);
-            File.WriteAllText(outputPath, materialPaletteData);
-            Debug.Log($"Material Palette data exported to: {outputPath}");
-        }
-
-        public static string GetMaterialPaletteData(MaterialPaletteAsset materialPalette)
-        {
-            if (materialPalette == null)
-            {
-                Debug.LogError("Material Palette asset is null!");
-                return null;
-            }
-
-            MaterialPaletteEditor editor = (MaterialPaletteEditor)Editor.CreateEditor(materialPalette);
-            string text = editor.GetText(materialPalette);
-            UnityEngine.Object.DestroyImmediate(editor);
-            return text;
         }
 
         public static void ExportAllVehiclesToFolder(string folderPath)
@@ -929,8 +698,11 @@ namespace Tools
             var allVehicles = GetAllVehicleAssets();
             foreach (var vehicle in allVehicles)
             {
-                string outputPath = Path.Combine(folderPath, $"{vehicle.name}.dat");
-                ExportVehicle(vehicle, outputPath);
+             
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(vehicle));
+                string vehicleFolderPath = Path.Combine(folderPath, assetFileName);
+          
+                vehicle.SaveAllFiles(vehicleFolderPath);
             }
             Debug.Log($"All vehicles exported to: {folderPath}");
         }
@@ -946,8 +718,11 @@ namespace Tools
             var allItems = GetAllItemAssets();
             foreach (var item in allItems)
             {
-                string itemFolderPath = Path.Combine(folderPath, item.name);
-                ExportItem(item, itemFolderPath);
+          
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(item));
+                string itemFolderPath = Path.Combine(folderPath, assetFileName);
+         
+                item.SaveAllFiles(itemFolderPath);
             }
             Debug.Log($"All items exported to: {folderPath}");
         }
@@ -963,8 +738,11 @@ namespace Tools
             var allMaterialPalettes = GetAllMaterialPaletteAssets();
             foreach (var materialPalette in allMaterialPalettes)
             {
-                string outputPath = Path.Combine(folderPath, $"{materialPalette.name}.asset");
-                ExportMaterialPalette(materialPalette, outputPath);
+               
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(materialPalette));
+                string paletteFolderPath = Path.Combine(folderPath, assetFileName);
+            
+                materialPalette.SaveAllFiles(paletteFolderPath);
             }
             Debug.Log($"All material palettes exported to: {folderPath}");
         }
@@ -1121,7 +899,7 @@ namespace Tools
 
             try
             {
-                string materialPaletteData = GetMaterialPaletteData(materialPalette);
+                string materialPaletteData = materialPalette.GetText(); 
                 File.WriteAllText(outputPath, materialPaletteData);
                 result["success"] = $"Material Palette exported successfully to: {outputPath}";
                 result["data"] = materialPaletteData;
@@ -1154,7 +932,8 @@ namespace Tools
                 string itemData = item.GetText();
                 string englishData = item.GetEnglishLanguageText();
                 
-                string fileName = string.IsNullOrEmpty(item.nameEnglish) ? item.name : item.nameEnglish;
+                string assetPath = AssetDatabase.GetAssetPath(item);
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
                 
                 foreach (char c in Path.GetInvalidFileNameChars())
                 {
@@ -1203,7 +982,8 @@ namespace Tools
             {
                 string vehicleData = vehicle.GetText();
                 
-                string fileName = string.IsNullOrEmpty(vehicle.title) ? vehicle.name : vehicle.title;
+                string assetPath = AssetDatabase.GetAssetPath(vehicle);
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
                 
                 foreach (char c in Path.GetInvalidFileNameChars())
                 {
@@ -1254,7 +1034,8 @@ namespace Tools
             {
                 string objectData = obj.GetText();
                 
-                string fileName = string.IsNullOrEmpty(obj.nameEnglish) ? obj.name : obj.nameEnglish;
+                string assetPath = AssetDatabase.GetAssetPath(obj);
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
                 
                 foreach (char c in Path.GetInvalidFileNameChars())
                 {
@@ -1292,109 +1073,6 @@ namespace Tools
             }
         }
 
-        public static void ExportMaterialPaletteToExistingFolder(MaterialPaletteAsset materialPalette, string existingFolderPath)
-        {
-            if (materialPalette == null)
-            {
-                Debug.LogError("MaterialPaletteAsset is null - cannot export");
-                return;
-            }
-            
-            if (!Directory.Exists(existingFolderPath))
-            {
-                Debug.LogWarning($"Directory does not exist, creating: {existingFolderPath}");
-                Directory.CreateDirectory(existingFolderPath);
-            }
-            
-            try
-            {
-                string materialPaletteData = GetMaterialPaletteData(materialPalette);
-                
-                string fileName = materialPalette.name;
-                
-                foreach (char c in Path.GetInvalidFileNameChars())
-                {
-                    fileName = fileName.Replace(c, '_');
-                }
-                fileName = fileName.Replace(' ', '_');
-                
-                if (string.IsNullOrWhiteSpace(fileName))
-                {
-                    fileName = "MaterialPalette_" + materialPalette.GetInstanceID();
-                    Debug.LogWarning($"Using fallback filename for material palette: {fileName}");
-                }
-                
-                string materialPalettePath = Path.Combine(existingFolderPath, $"{fileName}.dat");
-                File.WriteAllText(materialPalettePath, materialPaletteData);
-                Debug.Log($"Exported material palette file: {materialPalettePath}");
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error exporting material palette {materialPalette.name}: {e.Message}\n{e.StackTrace}");
-            }
-        }
-
-        public static void ExportStereoSong(StereoSongAsset stereoSong, string outputPath)
-        {
-            if (stereoSong == null)
-            {
-                Debug.LogError("Stereo Song asset is null!");
-                return;
-            }
-
-            try 
-            {
-                Editor editor = Editor.CreateEditor(stereoSong);
-                if (editor is StereoSongEditor stereoSongEditor)
-                {
-                    string text = stereoSongEditor.GetText(stereoSong);
-                    File.WriteAllText(outputPath, text);
-                    UnityEngine.Object.DestroyImmediate(editor);
-                    Debug.Log($"Stereo Song data exported to: {outputPath}");
-                }
-                else
-                {
-                    Debug.LogError($"Failed to create StereoSongEditor. Created editor type: {editor?.GetType().FullName}");
-                    UnityEngine.Object.DestroyImmediate(editor);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Error when exporting stereo song. Asset type: {stereoSong.GetType().FullName}. Error: {ex.Message}\n{ex.StackTrace}");
-            }
-        }
-
-        public static string GetStereoSongData(StereoSongAsset stereoSong)
-        {
-            if (stereoSong == null)
-            {
-                Debug.LogError("Stereo Song asset is null!");
-                return null;
-            }
-
-            try
-            {
-                Editor editor = Editor.CreateEditor(stereoSong);
-                if (editor is StereoSongEditor stereoSongEditor)
-                {
-                    string text = stereoSongEditor.GetText(stereoSong);
-                    UnityEngine.Object.DestroyImmediate(editor);
-                    return text;
-                }
-                else
-                {
-                    Debug.LogError($"Failed to create StereoSongEditor. Created editor type: {editor?.GetType().FullName}");
-                    UnityEngine.Object.DestroyImmediate(editor);
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Error when getting stereo song data. Asset type: {stereoSong.GetType().FullName}. Error: {ex.Message}\n{ex.StackTrace}");
-                return null;
-            }
-        }
-
         public static void ExportAllStereoSongsToFolder(string folderPath)
         {
             if (string.IsNullOrEmpty(folderPath))
@@ -1406,8 +1084,9 @@ namespace Tools
             var allStereoSongs = GetAllStereoSongAssets();
             foreach (var stereoSong in allStereoSongs)
             {
-                string outputPath = Path.Combine(folderPath, $"{stereoSong.name}.asset");
-                ExportStereoSong(stereoSong, outputPath);
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(stereoSong));
+                string songFolderPath = Path.Combine(folderPath, assetFileName);
+                stereoSong.SaveAllFiles(songFolderPath);
             }
             Debug.Log($"All stereo songs exported to: {folderPath}");
         }
@@ -1431,19 +1110,11 @@ namespace Tools
 
             try
             {
-                Editor editor = Editor.CreateEditor(stereoSong);
-                if (editor is StereoSongEditor stereoSongEditor)
-                {
-                    string stereoSongData = stereoSongEditor.GetText(stereoSong);
-                    File.WriteAllText(outputPath, stereoSongData);
-                    result["success"] = $"Stereo Song exported successfully to: {outputPath}";
-                    result["data"] = stereoSongData;
-                    result["path"] = outputPath;
-                }
-                else
-                {
-                    result["error"] = $"Failed to create StereoSongEditor. Created editor type: {editor?.GetType().FullName}";
-                }
+                string stereoSongData = stereoSong.GetExportText();
+                File.WriteAllText(outputPath, stereoSongData);
+                result["success"] = $"Stereo Song exported successfully to: {outputPath}";
+                result["data"] = stereoSongData;
+                result["path"] = outputPath;
             }
             catch (System.Exception ex)
             {
@@ -1469,28 +1140,7 @@ namespace Tools
             
             try
             {       
-                string stereoSongData = null;
-                
-                try 
-                {
-                    Editor editor = Editor.CreateEditor(stereoSong);
-                    if (editor is StereoSongEditor stereoSongEditor)
-                    {
-                        stereoSongData = stereoSongEditor.GetText(stereoSong);
-                        UnityEngine.Object.DestroyImmediate(editor);
-                    }
-                    else
-                    {
-                        Debug.LogError($"Failed to create StereoSongEditor. Created editor type: {editor?.GetType().FullName}");
-                        UnityEngine.Object.DestroyImmediate(editor);
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Error when getting stereo song data. Asset type: {stereoSong.GetType().FullName}. Error: {ex.Message}\n{ex.StackTrace}");
-                    return;
-                }
+                string stereoSongData = stereoSong.GetExportText();
                 
                 if (string.IsNullOrEmpty(stereoSongData))
                 {
@@ -1508,30 +1158,6 @@ namespace Tools
             }
         }
 
-        public static void ExportFoliageResource(FoliageResourceAsset foliageResource, string outputPath)
-        {
-            if (foliageResource == null)
-            {
-                Debug.LogError("Foliage Resource asset is null!");
-                return;
-            }
-
-            string foliageData = foliageResource.GetText();
-            File.WriteAllText(outputPath, foliageData);
-            Debug.Log($"Foliage Resource data exported to: {outputPath}");
-        }
-
-        public static string GetFoliageResourceData(FoliageResourceAsset foliageResource)
-        {
-            if (foliageResource == null)
-            {
-                Debug.LogError("Foliage Resource asset is null!");
-                return null;
-            }
-
-            return foliageResource.GetText();
-        }
-
         public static void ExportAllFoliageResourcesToFolder(string folderPath)
         {
             if (string.IsNullOrEmpty(folderPath))
@@ -1543,8 +1169,9 @@ namespace Tools
             var allFoliageResources = GetAllFoliageResourceAssets();
             foreach (var foliageResource in allFoliageResources)
             {
-                string outputPath = Path.Combine(folderPath, $"{foliageResource.assetName}.asset");
-                ExportFoliageResource(foliageResource, outputPath);
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(foliageResource));
+                string foliageFolderPath = Path.Combine(folderPath, assetFileName);
+                foliageResource.SaveAllFiles(foliageFolderPath);
             }
             Debug.Log($"All foliage resources exported to: {folderPath}");
         }
@@ -1598,25 +1225,26 @@ namespace Tools
             
             try
             {
-                string foliageResourceData = GetFoliageResourceData(foliageResource);
+                string foliageResourceData = foliageResource.GetText(); 
                 
-                string fileName = foliageResource.assetName;
+                string assetPath = AssetDatabase.GetAssetPath(foliageResource);
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
 
-                foreach (char c in Path.GetInvalidFileNameChars())
-                {
-                    fileName = fileName.Replace(c, '_');
-                }
-                fileName = fileName.Replace(' ', '_');
+                 foreach (char c in Path.GetInvalidFileNameChars())
+                 {
+                     fileName = fileName.Replace(c, '_');
+                 }
+                 fileName = fileName.Replace(' ', '_');
                 
-                if (string.IsNullOrWhiteSpace(fileName))
-                {
-                    fileName = "FoliageResource_" + foliageResource.GetInstanceID();
-                    Debug.LogWarning($"Using fallback filename for foliage resource: {fileName}");
-                }
+                 if (string.IsNullOrWhiteSpace(fileName))
+                 {
+                     fileName = "FoliageResource_" + foliageResource.GetInstanceID();
+                     Debug.LogWarning($"Using fallback filename for foliage resource: {fileName}");
+                 }
                 
-                string foliageResourcePath = Path.Combine(existingFolderPath, $"{fileName}.dat");
-                File.WriteAllText(foliageResourcePath, foliageResourceData);
-                Debug.Log($"Exported foliage resource file: {foliageResourcePath}");
+                 string foliageResourcePath = Path.Combine(existingFolderPath, $"{fileName}.dat");
+                 File.WriteAllText(foliageResourcePath, foliageResourceData);
+                 Debug.Log($"Exported foliage resource file to: {foliageResourcePath}");
             }
             catch (Exception e)
             {
@@ -1626,134 +1254,176 @@ namespace Tools
 
         private void ExportSelectedVehicles()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Vehicles",
+            if (selectedVehicles.Count == 0 || selectedVehicles.Any(v => v == null)) return;
+
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Vehicles",
                 "",
                 "SelectedVehicles"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var vehicle in selectedVehicles)
             {
-                if (vehicle != null)
-                {
-                    string outputPath = Path.Combine(folderPath, $"{vehicle.name}.dat");
-                    ExportVehicle(vehicle, outputPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(vehicle));
+                string vehicleFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                vehicle.SaveAllFiles(vehicleFolderPath); 
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected vehicles have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected vehicles exported to subfolders within: {baseFolderPath}", "OK");
         }
 
         private void ExportSelectedItems()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Items",
+            if (selectedItems.Count == 0 || selectedItems.Any(i => i == null)) return;
+
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Items",
                 "",
                 "SelectedItems"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var item in selectedItems)
             {
-                if (item != null)
-                {
-                    string itemFolderPath = Path.Combine(folderPath, item.name);
-                    ExportItem(item, itemFolderPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(item));
+                string itemFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                item.SaveAllFiles(itemFolderPath); 
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected items have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected items exported to subfolders within: {baseFolderPath}", "OK");
         }
 
         private void ExportSelectedObjects()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Objects",
+            if (selectedObjects.Count == 0 || selectedObjects.Any(o => o == null)) return;
+
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Objects",
                 "",
                 "SelectedObjects"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var obj in selectedObjects)
             {
-                if (obj != null)
-                {
-                    string objFolderPath = Path.Combine(folderPath, obj.name);
-                    ExportObject(obj, objFolderPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(obj));
+                string objFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                obj.SaveAllFiles(objFolderPath); 
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected objects have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected objects exported to subfolders within: {baseFolderPath}", "OK");
         }
 
         private void ExportSelectedMaterialPalettes()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Material Palettes",
+            if (selectedMaterialPalettes.Count == 0 || selectedMaterialPalettes.Any(p => p == null)) return;
+
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Material Palettes",
                 "",
                 "SelectedMaterialPalettes"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var materialPalette in selectedMaterialPalettes)
             {
-                if (materialPalette != null)
-                {
-                    string outputPath = Path.Combine(folderPath, $"{materialPalette.name}.asset");
-                    ExportMaterialPalette(materialPalette, outputPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(materialPalette));
+                string paletteFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                materialPalette.SaveAllFiles(paletteFolderPath); 
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected material palettes have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected material palettes exported to subfolders within: {baseFolderPath}", "OK");
         }
 
         private void ExportSelectedStereoSongs()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Stereo Songs",
+             if (selectedStereoSongs.Count == 0 || selectedStereoSongs.Any(s => s == null)) return;
+
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Stereo Songs",
                 "",
                 "SelectedStereoSongs"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var stereoSong in selectedStereoSongs)
             {
-                if (stereoSong != null)
-                {
-                    string outputPath = Path.Combine(folderPath, $"{stereoSong.name}.asset");
-                    ExportStereoSong(stereoSong, outputPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(stereoSong));
+                string songFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                stereoSong.SaveAllFiles(songFolderPath);
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected stereo songs have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected stereo songs exported to subfolders within: {baseFolderPath}", "OK");
         }
 
         private void ExportSelectedFoliageResources()
         {
-            string folderPath = EditorUtility.SaveFolderPanel(
-                "Select Export Folder for Selected Foliage Resources",
+            if (selectedFoliageResources.Count == 0 || selectedFoliageResources.Any(f => f == null)) return;
+            
+            string baseFolderPath = EditorUtility.SaveFolderPanel(
+                "Select Base Export Folder for Selected Foliage Resources",
                 "",
                 "SelectedFoliageResources"
             );
 
-            if (string.IsNullOrEmpty(folderPath)) return;
+            if (string.IsNullOrEmpty(baseFolderPath)) return;
 
             foreach (var foliageResource in selectedFoliageResources)
             {
-                if (foliageResource != null)
-                {
-                    string outputPath = Path.Combine(folderPath, $"{foliageResource.assetName}.asset");
-                    ExportFoliageResource(foliageResource, outputPath);
-                }
+                string assetFileName = Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(foliageResource));
+                string foliageFolderPath = Path.Combine(baseFolderPath, assetFileName);
+                foliageResource.SaveAllFiles(foliageFolderPath); 
             }
 
-            EditorUtility.DisplayDialog("Export Complete", "Selected foliage resources have been exported successfully!", "OK");
+            EditorUtility.DisplayDialog("Export Complete", $"Selected foliage resources exported to subfolders within: {baseFolderPath}", "OK");
+        }
+
+        public static void ExportMaterialPaletteToExistingFolder(MaterialPaletteAsset materialPalette, string existingFolderPath)
+        {
+            if (materialPalette == null)
+            {
+                Debug.LogError("MaterialPaletteAsset is null - cannot export");
+                return;
+            }
+            
+            if (!Directory.Exists(existingFolderPath))
+            {
+                Debug.LogWarning($"Directory does not exist, creating: {existingFolderPath}");
+                Directory.CreateDirectory(existingFolderPath);
+            }
+            
+            try
+            {
+                string materialPaletteData = materialPalette.GetText(); 
+                
+                string assetPath = AssetDatabase.GetAssetPath(materialPalette);
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
+
+                 foreach (char c in Path.GetInvalidFileNameChars())
+                 {
+                     fileName = fileName.Replace(c, '_');
+                 }
+                 fileName = fileName.Replace(' ', '_');
+                
+                 if (string.IsNullOrWhiteSpace(fileName))
+                 {
+                     fileName = "MaterialPalette_" + materialPalette.GetInstanceID();
+                     Debug.LogWarning($"Using fallback filename for material palette: {fileName}");
+                 }
+                
+                 string materialPalettePath = Path.Combine(existingFolderPath, $"{fileName}.asset"); 
+                 Debug.Log($"Exported material palette file to: {materialPalettePath}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error exporting material palette {materialPalette.name}: {e.Message}\n{e.StackTrace}");
+            }
         }
     }
 

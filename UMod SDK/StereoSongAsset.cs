@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using System;
 using System.IO;
+using System.Text;
 
 namespace Tools
 {
@@ -59,6 +60,86 @@ namespace Tools
             if (string.IsNullOrEmpty(guid))
             {
                 guid = Guid.NewGuid().ToString("N");
+            }
+        }
+
+        public string GetExportText()
+        {
+            StringBuilder text = new StringBuilder();
+
+            text.AppendLine($"GUID {guid}");
+            text.AppendLine("Type SDG.Unturned.StereoSongAsset, Assembly-CSharp, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
+            text.AppendLine("ID 0");
+
+            if (!string.IsNullOrEmpty(title))
+            {
+                text.AppendLine($"Title \"{title}\"");
+            }
+            else if (!string.IsNullOrEmpty(titleToken))
+            {
+                text.AppendLine("Title");
+                text.AppendLine("{");
+                text.AppendLine($"    \"Namespace\" \"{titleNamespace}\"");
+                text.AppendLine($"    \"Token\" \"{titleToken}\"");
+                text.AppendLine("}");
+            }
+
+            if (!string.IsNullOrEmpty(songAssetPath))
+            {
+                text.AppendLine("Song");
+                text.AppendLine("{");
+                text.AppendLine($"    \"MasterBundle\" \"{songBundleName}\"");
+                text.AppendLine($"    \"AssetPath\" \"{songAssetPath}\"");
+                text.AppendLine("}");
+            }
+
+            if (!string.IsNullOrEmpty(linkURL))
+            {
+                text.AppendLine($"Link_URL \"{linkURL}\"");
+            }
+
+            if (isLoop)
+            {
+                text.AppendLine("Is_Loop true");
+            }
+
+            return text.ToString();
+        }
+
+        public void SaveAllFiles(string folderPath)
+        {
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                Debug.LogError("Export folder path is null or empty for StereoSongAsset!");
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(folderPath);
+
+                string fileName = this.name;
+                foreach (char c in Path.GetInvalidFileNameChars())
+                {
+                    fileName = fileName.Replace(c, '_');
+                }
+                fileName = fileName.Replace(' ', '_');
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    fileName = "StereoSong_" + this.GetInstanceID();
+                    Debug.LogWarning($"Using fallback filename for stereo song: {fileName}");
+                }
+
+                string filePath = Path.Combine(folderPath, $"{fileName}.asset");
+
+                string fileContent = GetExportText();
+
+                File.WriteAllText(filePath, fileContent);
+                Debug.Log($"Stereo Song exported successfully to: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Failed to export Stereo Song \'{this.name}\' to {folderPath}: {ex.Message}\\n{ex.StackTrace}");
             }
         }
     }

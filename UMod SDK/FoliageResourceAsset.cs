@@ -164,9 +164,9 @@ namespace Tools
         #if UNITY_EDITOR
         public void SaveFoliageResourceFile(string folderPath)
         {
+            string assetPath = AssetDatabase.GetAssetPath(this);
             if (string.IsNullOrEmpty(folderPath))
             {
-                string assetPath = AssetDatabase.GetAssetPath(this);
                 if (!string.IsNullOrEmpty(assetPath))
                 {
                     folderPath = Path.GetDirectoryName(assetPath);
@@ -174,7 +174,10 @@ namespace Tools
             }
             
             string resourceText = GetText();
-            string fileName = string.IsNullOrEmpty(assetName) ? this.name : assetName;
+            string fileName = Path.GetFileNameWithoutExtension(assetPath);
+
+            Debug.Log($"[Foliage Save (.asset)] Asset Path: {assetPath}");
+            Debug.Log($"[Foliage Save (.asset)] Derived Filename (no ext): {fileName}");
 
             foreach (char c in Path.GetInvalidFileNameChars())
             {
@@ -190,6 +193,7 @@ namespace Tools
             }
             
             string filePath = Path.Combine(absoluteFolderPath, fileName + ".asset");
+            Debug.Log($"[Foliage Save (.asset)] Final FilePath: {filePath}");
             File.WriteAllText(filePath, resourceText);
             
             Debug.Log("Foliage resource file saved to: " + filePath);
@@ -198,9 +202,9 @@ namespace Tools
         
         public void SaveAllFiles(string folderPath)
         {
+            string assetPath = AssetDatabase.GetAssetPath(this);
             if (string.IsNullOrEmpty(folderPath))
             {
-                string assetPath = AssetDatabase.GetAssetPath(this);
                 if (!string.IsNullOrEmpty(assetPath))
                 {
                     folderPath = Path.GetDirectoryName(assetPath);
@@ -223,7 +227,10 @@ namespace Tools
             try
             {
                 string foliageData = GetText();
-                string fileName = string.IsNullOrEmpty(assetName) ? name : assetName;
+                string fileName = Path.GetFileNameWithoutExtension(assetPath);
+
+                Debug.Log($"[Foliage SaveAll (.dat)] Asset Path: {assetPath}");
+                Debug.Log($"[Foliage SaveAll (.dat)] Derived Filename (no ext): {fileName}");
                 
                 foreach (char c in Path.GetInvalidFileNameChars())
                 {
@@ -238,10 +245,10 @@ namespace Tools
                 }
                 
                 string filePath = Path.Combine(absoluteFolderPath, fileName + ".dat");
+                Debug.Log($"[Foliage SaveAll (.dat)] Final FilePath: {filePath}");
                 File.WriteAllText(filePath, foliageData);
                 Debug.Log($"Foliage Resource data saved to: {filePath}");
                 
-                string assetPath = AssetDatabase.GetAssetPath(this);
                 if (!string.IsNullOrEmpty(assetPath) && !string.IsNullOrEmpty(absoluteFolderPath))
                 {
                     string assetFileName = Path.GetFileName(assetPath);

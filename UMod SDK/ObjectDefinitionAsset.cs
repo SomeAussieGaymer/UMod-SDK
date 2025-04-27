@@ -357,13 +357,18 @@ namespace Tools
         public void SaveObjectDatFile(string folderPath)
         {
             string objectText = GetText();
-            string fileName = !string.IsNullOrEmpty(nameEnglish) ? nameEnglish : this.name;
+            string assetPath = AssetDatabase.GetAssetPath(this);
+            string fileName = Path.GetFileNameWithoutExtension(assetPath);
+
+            Debug.Log($"[ObjectDef Save] Asset Path: {assetPath}");
+            Debug.Log($"[ObjectDef Save] Derived Filename (no ext): {fileName}");
 
             foreach (char c in Path.GetInvalidFileNameChars())
             {
                 fileName = fileName.Replace(c, '_');
             }
             string filePath = Path.Combine(folderPath, fileName + ".dat");
+            Debug.Log($"[ObjectDef Save] Final FilePath: {filePath}");
             File.WriteAllText(filePath, objectText);
             
             Debug.Log("Object DAT file saved to: " + filePath);

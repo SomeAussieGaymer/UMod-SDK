@@ -149,7 +149,11 @@ namespace Tools
         public void SaveMaterialPaletteFile(string folderPath)
         {
             string paletteText = GetText();
-            string fileName = this.name;
+            string assetPath = AssetDatabase.GetAssetPath(this);
+            string fileName = Path.GetFileNameWithoutExtension(assetPath);
+
+            Debug.Log($"[MatPalette Save] Asset Path: {assetPath}");
+            Debug.Log($"[MatPalette Save] Derived Filename (no ext): {fileName}");
 
             foreach (char c in Path.GetInvalidFileNameChars())
             {
@@ -158,6 +162,7 @@ namespace Tools
             fileName = fileName.Replace(' ', '_');
             
             string filePath = Path.Combine(folderPath, fileName + ".asset");
+            Debug.Log($"[MatPalette Save] Final FilePath: {filePath}");
             File.WriteAllText(filePath, paletteText);
             
             Debug.Log("Material palette file saved to: " + filePath);

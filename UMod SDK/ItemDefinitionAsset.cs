@@ -700,17 +700,22 @@ namespace Tools
         
         public void SaveItemDatFile(string folderPath)
         {
+            #if UNITY_EDITOR
             string itemText = GetText();
-            string fileName = !string.IsNullOrEmpty(nameEnglish) ? nameEnglish : this.name;
+            string assetPath = AssetDatabase.GetAssetPath(this);
+            string fileName = Path.GetFileNameWithoutExtension(assetPath); 
+
+            Debug.Log($"[ItemDef Save] Asset Path: {assetPath}");
+            Debug.Log($"[ItemDef Save] Derived Filename (no ext): {fileName}");
 
             foreach (char c in Path.GetInvalidFileNameChars())
             {
                 fileName = fileName.Replace(c, '_');
             }
             string filePath = Path.Combine(folderPath, fileName + ".dat");
+            Debug.Log($"[ItemDef Save] Final FilePath: {filePath}");
             File.WriteAllText(filePath, itemText);
             
-            #if UNITY_EDITOR
             Debug.Log("Item DAT file saved to: " + filePath);
             UnityEditor.AssetDatabase.Refresh();
             #endif

@@ -1200,7 +1200,7 @@ public class ObjectAssetGenerator : EditorWindow
     
     private void SavePrefab(GameObject prefab, string folderPath, string suffix)
     {
-        string prefabName = $"{selectedType}_{suffix}";
+        string prefabName = suffix;
         string prefabPath = Path.Combine(folderPath, $"{prefabName}.prefab").Replace("\\", "/");
         
         try

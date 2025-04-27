@@ -33,7 +33,7 @@ namespace Tools
 		private bool multiplatform = false;
 		private int assetBundleVersion = 5;
 
-		[MenuItem("Window/UMod SDK/Master Bundle Tool")]
+		[MenuItem("UMod SDK/Master Bundle Tool")]
 		public static void ShowWindow()
 		{
 			CheckRequiredPackages();
@@ -154,22 +154,23 @@ namespace Tools
 					continue;
 
 				EditorGUILayout.BeginHorizontal();
-				EditorGUILayout.LabelField(assetBundleName, GUILayout.Width(200));
+				EditorGUILayout.LabelField(assetBundleName, GUILayout.MinWidth(150));
 
-				string currentPath = GetMasterBundleExportPath(assetBundleName);
-				bool hasPath = !string.IsNullOrEmpty(currentPath);
-
-				if (GUILayout.Button(new GUIContent("...", hasPath ? currentPath : "Select Export Path"), GUILayout.Width(30)))
+			
+				string currentExportPath = GetMasterBundleExportPath(assetBundleName);
+				bool hasExportPath = !string.IsNullOrEmpty(currentExportPath);
+				if (GUILayout.Button(new GUIContent("...", hasExportPath ? currentExportPath : "Select Export Path"), GUILayout.Width(30)))
 				{
-					string newPath = EditorUtility.OpenFolderPanel("Master Bundle Export Location", currentPath, "");
-					if (!string.IsNullOrEmpty(newPath))
+					string newExportPath = EditorUtility.OpenFolderPanel("Master Bundle Export Location", currentExportPath, "");
+					if (!string.IsNullOrEmpty(newExportPath))
 					{
-						EditorPrefs.SetString(assetBundleName + "_ExportPath", newPath);
+						EditorPrefs.SetString(assetBundleName + "_ExportPath", newExportPath);
 					}
 				}
 
+				bool canExport = hasExportPath; 
 				bool wasEnabled = GUI.enabled;
-				GUI.enabled = hasPath;
+				GUI.enabled = canExport;
 				if (GUILayout.Button("Export", GUILayout.Width(80)))
 				{
 					ExportMasterBundle(assetBundleName);
@@ -179,15 +180,62 @@ namespace Tools
 			}
 		}
 
+		private string FindAssignedRootFolder(string assetBundleName)
+		{
+			List<string> candidateFolders = new List<string>();
+			string[] folderGUIDs = AssetDatabase.FindAssets("t:DefaultAsset");
+
+			foreach (string guid in folderGUIDs)
+			{
+				string path = AssetDatabase.GUIDToAssetPath(guid);
+				if (AssetDatabase.IsValidFolder(path))
+				{
+					AssetImporter importer = AssetImporter.GetAtPath(path);
+					if (importer != null && importer.assetBundleName == assetBundleName)
+					{
+						candidateFolders.Add(path);
+					}
+				}
+			}
+
+			if (candidateFolders.Count == 0)
+			{
+				Debug.LogError($"Asset bundle '{assetBundleName}' is not assigned to any folder. Please select the root folder for your bundle in the Project view and assign the bundle name in the Inspector.");
+				return null;
+			}
+
+			if (candidateFolders.Count > 1)
+			{
+				Debug.LogError($"Asset bundle '{assetBundleName}' is assigned to multiple folders ({string.Join(", ", candidateFolders)}). Please assign the bundle name to only one root folder.");
+				return null;
+			}
+
+			return candidateFolders[0]; 
+		}
+
 		private void ExportMasterBundle(string assetBundleName)
 		{
 			string exportPath = GetMasterBundleExportPath(assetBundleName);
+
+			string absoluteRootPath = FindAssignedRootFolder(assetBundleName);
+
 			if (string.IsNullOrEmpty(exportPath))
 			{
 				Debug.LogError($"Export path not set for {assetBundleName}");
 				EditorUtility.DisplayDialog("Export Error", "Please set an export path first.", "OK");
 				return;
 			}
+	
+			if (string.IsNullOrEmpty(absoluteRootPath))
+			{
+				EditorUtility.DisplayDialog("Export Error", $"Could not automatically determine the root folder for bundle '{assetBundleName}'. Check console for details.", "OK");
+				return;
+			}
+
+	
+			string rootBundleFolderPath = absoluteRootPath.StartsWith("Assets/") ? absoluteRootPath.Substring(7) : absoluteRootPath;
+			rootBundleFolderPath = rootBundleFolderPath.Trim('/', '\\');
+			Debug.Log($"Automatically detected root folder: '{absoluteRootPath}" + (absoluteRootPath == rootBundleFolderPath ? "" : $"' -> Using relative path: '{rootBundleFolderPath}'"));
 
 			bool hasEditorCoroutines = false;
 			try
@@ -202,261 +250,171 @@ namespace Tools
 
 			if (hasEditorCoroutines)
 			{
-				EditorCoroutineUtility.StartCoroutine(ExportMasterBundleAsync(assetBundleName, exportPath), this);
+				EditorCoroutineUtility.StartCoroutine(ExportMasterBundleAsync(assetBundleName, exportPath, rootBundleFolderPath), this);
 			}
 			else
 			{
 				Debug.LogWarning("Editor Coroutines package not found. Running export synchronously. For a better experience, please install the Editor Coroutines package.");
-				ExportMasterBundleSynchronously(assetBundleName, exportPath);
+				ExportMasterBundleSynchronously(assetBundleName, exportPath, rootBundleFolderPath);
 			}
 		}
 
-		private System.Collections.IEnumerator ExportMasterBundleAsync(string assetBundleName, string outputPath)
+		private System.Collections.IEnumerator ExportMasterBundleAsync(string assetBundleName, string outputPath, string rootBundleFolderPath)
 		{
-			Debug.Log("Exporting master bundle: " + assetBundleName + " to " + outputPath);
+			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Preparing...", 0.0f);
 			
-			float progress = 0f;
-			int totalSteps = 7;
-			
-			Debug.Log("Step 1: Create folder structure");
-			CreateFolderStructure(assetBundleName, outputPath);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Creating folder structure...", 1f / totalSteps);
-			progress = 1f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 2: Export assets directly using ExporterUtility");
-			BruteForceCopyAllFiles(assetBundleName, outputPath);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Exporting assets with ExporterUtility...", 2f / totalSteps);
-			progress = 2f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 3: Exporting config files");
-			ExportConfigFiles(assetBundleName, outputPath);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Exporting config files...", 3f / totalSteps);
-			progress = 3f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 4: Copying other asset files");
-			string assetPrefix = DetermineAssetPrefix(assetBundleName);
-			CopyOtherAssetFiles(assetBundleName, outputPath, assetPrefix);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Copying other asset files...", 4f / totalSteps);
-			progress = 4f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 5: Copying important assets");
-			CopyImportantAssets(assetBundleName, outputPath, assetPrefix);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Copying important assets...", 5f / totalSteps);
-			progress = 5f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 6: Writing master bundle file");
-			WriteMasterBundleFile(outputPath, assetBundleName, assetPrefix);
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Writing master bundle file...", 6f / totalSteps);
-			progress = 6f / totalSteps;
-			yield return null;
-			
-			Debug.Log("Step 7: Building asset bundle");
-			AssetBundleDebugOptions bundleOptions = new AssetBundleDebugOptions();
-			if (bundleOptions.buildAssetBundle)
-			{
-				BuildAssetBundle(assetBundleName, outputPath, multiplatform);
-			}
-			else
-			{
-				Debug.Log("Asset bundle build is disabled in debug options.");
-			}
-			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Building asset bundle...", 7f / totalSteps);
-			progress = 7f / totalSteps;
-			yield return null;
-			
-			EditorUtility.ClearProgressBar();
-			Debug.Log("Export complete for master bundle: " + assetBundleName);
-			yield return null;
-		}
-
-		private void ExportMasterBundleSynchronously(string assetBundleName, string exportPath)
-		{
 			try
 			{
-				EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Step 1: Creating folder structure...", 0.1f);
-				Debug.Log($"Step 1: Creating folder structure for {assetBundleName}...");
-				try
+				if (!Directory.Exists(outputPath))
 				{
-					CreateFolderStructure(assetBundleName, exportPath);
-					Debug.Log("Folder structure created successfully");
+					Directory.CreateDirectory(outputPath);
 				}
-				catch (Exception e)
-				{
-					Debug.LogError($"Error creating folder structure: {e.Message}\n{e.StackTrace}");
-					EditorUtility.ClearProgressBar();
-					EditorUtility.DisplayDialog("Export Error", $"Failed to create folder structure: {e.Message}", "OK");
-					return;
-				}
-
-				EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Step 2: Writing MasterBundle.dat...", 0.3f);
-				Debug.Log("Step 2: Writing MasterBundle.dat...");
-				try
-				{
-					string assetPrefix = DetermineAssetPrefix(assetBundleName);
-					WriteMasterBundleFile(exportPath, assetBundleName, assetPrefix);
-					Debug.Log("MasterBundle.dat written successfully");
-				}
-				catch (Exception e)
-				{
-					Debug.LogError($"Error writing MasterBundle.dat: {e.Message}\n{e.StackTrace}");
-					EditorUtility.ClearProgressBar();
-					EditorUtility.DisplayDialog("Export Error", $"Failed to write MasterBundle.dat: {e.Message}", "OK");
-					return;
-				}
-
-				EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Step 3: Exporting config files...", 0.5f);
-				Debug.Log("Step 3: Exporting config files...");
-				try
-				{
-					ExportConfigFiles(assetBundleName, exportPath);
-					Debug.Log("Config files exported successfully");
-				}
-				catch (Exception e)
-				{
-					Debug.LogError($"Error exporting config files: {e.Message}\n{e.StackTrace}");
-					EditorUtility.ClearProgressBar();
-					EditorUtility.DisplayDialog("Export Error", $"Failed to export config files: {e.Message}", "OK");
-					return;
-				}
-
-				EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Step 4: Building asset bundle...", 0.8f);
-				Debug.Log("Step 4: Building asset bundle...");
-				try
-				{
-					BuildAssetBundle(assetBundleName, exportPath, multiplatform);
-					Debug.Log("Asset bundle built successfully");
-				}
-				catch (Exception e)
-				{
-					Debug.LogError($"Error building asset bundle: {e.Message}\n{e.StackTrace}");
-					EditorUtility.ClearProgressBar();
-					EditorUtility.DisplayDialog("Export Error", $"Failed to build asset bundle: {e.Message}", "OK");
-					return;
-				}
-
-				EditorUtility.ClearProgressBar();
-				Debug.Log($"Master bundle export completed successfully for {assetBundleName}");
-				EditorUtility.DisplayDialog("Export Complete", $"Master bundle {assetBundleName} exported successfully to {exportPath}", "OK");
+				
+				Debug.Log($"Using automatically detected root folder path (relative to Assets/): {rootBundleFolderPath}");
+				string assetPrefix = $"Assets\\{rootBundleFolderPath}"; 
+				Debug.Log($"Using Asset prefix: {assetPrefix}");
 			}
 			catch (Exception e)
 			{
-				Debug.LogError($"Unexpected error during export: {e.Message}\n{e.StackTrace}");
 				EditorUtility.ClearProgressBar();
-				EditorUtility.DisplayDialog("Export Error", $"An unexpected error occurred: {e.Message}", "OK");
+				Debug.LogError($"Error preparing export: {e.Message}");
+				EditorUtility.DisplayDialog("Export Error", $"An error occurred during preparation: {e.Message}", "OK");
+				yield break;
+			}
+			
+			yield return null;
+			
+			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Writing MasterBundle.dat and creating folders...", 0.2f);
+			try
+			{
+				string lastFolder = rootBundleFolderPath.Contains('/') ? rootBundleFolderPath.Substring(rootBundleFolderPath.LastIndexOf('/') + 1) :
+											rootBundleFolderPath.Contains('\\') ? rootBundleFolderPath.Substring(rootBundleFolderPath.LastIndexOf('\\') + 1) :
+											rootBundleFolderPath;
+				string assetPrefix = $"Assets\\{lastFolder}"; 
+				WriteMasterBundleFile(outputPath, assetBundleName, assetPrefix, rootBundleFolderPath);
+			}
+			catch (Exception e)
+			{
+				EditorUtility.ClearProgressBar();
+				Debug.LogError($"Error writing master bundle file: {e.Message}");
+				EditorUtility.DisplayDialog("Export Error", $"An error occurred writing MasterBundle.dat: {e.Message}", "OK");
+				yield break;
+			}
+			
+			yield return null;
+			
+			EditorUtility.DisplayProgressBar("Exporting Master Bundle", "Building asset bundle...", 0.7f);
+			try
+			{
+				BuildAssetBundle(assetBundleName, outputPath, multiplatform);
+			}
+			catch (Exception e)
+			{
+				EditorUtility.ClearProgressBar();
+				Debug.LogError($"Error building asset bundle: {e.Message}");
+				EditorUtility.DisplayDialog("Export Error", $"An error occurred building asset bundle: {e.Message}", "OK");
+				yield break;
+			}
+			
+			yield return null;
+			
+			EditorUtility.ClearProgressBar();
+			Debug.Log("Export completed successfully!");
+			EditorUtility.DisplayDialog("Export Complete", $"Master Bundle {assetBundleName} has been exported to {outputPath}", "OK");
+		}
+
+		private void ExportMasterBundleSynchronously(string assetBundleName, string exportPath, string rootBundleFolderPath)
+		{
+			try
+			{
+				Debug.Log($"Starting export of {assetBundleName} to {exportPath} with automatically detected root folder Assets/{rootBundleFolderPath}");
+				
+			
+				if (!Directory.Exists(exportPath))
+				{
+					Directory.CreateDirectory(exportPath);
+				}
+
+				string lastFolder = rootBundleFolderPath.Contains('/') ? rootBundleFolderPath.Substring(rootBundleFolderPath.LastIndexOf('/') + 1) :
+											rootBundleFolderPath.Contains('\\') ? rootBundleFolderPath.Substring(rootBundleFolderPath.LastIndexOf('\\') + 1) :
+											rootBundleFolderPath;
+				string assetPrefix = $"Assets\\{lastFolder}"; 
+				Debug.Log($"Determined asset prefix: {assetPrefix}");
+				
+		
+				WriteMasterBundleFile(exportPath, assetBundleName, assetPrefix, rootBundleFolderPath);
+				Debug.Log("Created MasterBundle.dat file and exported configs");
+			
+				BuildAssetBundle(assetBundleName, exportPath, multiplatform);
+				Debug.Log("Built asset bundle successfully");
+				
+				Debug.Log("Export completed successfully!");
+				EditorUtility.DisplayDialog("Export Complete", $"Master Bundle {assetBundleName} has been exported to {exportPath}", "OK");
+			}
+			catch (Exception e)
+			{
+				Debug.LogError($"Error exporting master bundle: {e.Message}");
+				EditorUtility.DisplayDialog("Export Error", $"An error occurred: {e.Message}", "OK");
 			}
 		}
 
-		private void CreateFolderStructure(string assetBundleName, string outputPath)
+		private void CreateFolderStructure(string assetBundleName, string outputPath, string rootBundleFolderPath)
 		{
 			string[] assetPaths = AssetDatabase.GetAssetPathsFromAssetBundle(assetBundleName);
 			HashSet<string> createdDirectories = new HashSet<string>();
-			
-			Debug.Log($"Found {assetPaths.Length} assets in bundle");
+			string fullRootPrefix = "Assets/" + rootBundleFolderPath.Trim('/', '\\') + "/";
 
-			string topLevelFolder = null;
-			foreach (string assetPath in assetPaths)
+			Debug.Log($"Creating folder structure based on root: {fullRootPrefix}");
+			Debug.Log($"Found {assetPaths.Length} assets in bundle '{assetBundleName}'");
+
+		
+			if (!Directory.Exists(outputPath))
 			{
-				string relativePath = assetPath;
-				if (relativePath.StartsWith("Assets/"))
-				{
-					relativePath = relativePath.Substring(7);
-					
-					int firstSlash = relativePath.IndexOf('/');
-					if (firstSlash > 0)
-					{
-						topLevelFolder = relativePath.Substring(0, firstSlash);
-						break;
-					}
-					else if (!string.IsNullOrEmpty(relativePath))
-					{
-						topLevelFolder = relativePath;
-						break;
-					}
-				}
+				Directory.CreateDirectory(outputPath);
+				Debug.Log($"Created base directory: {outputPath}");
 			}
-			
-			if (string.IsNullOrEmpty(topLevelFolder))
-			{
-				Debug.LogWarning("Could not determine top-level folder from assets. Using asset bundle name as default.");
-				topLevelFolder = assetBundleName;
-			}
-			
-			Debug.Log($"Using top-level folder: {topLevelFolder}");
 
 			foreach (string assetPath in assetPaths)
 			{
-				string relativePath = assetPath;
-				if (relativePath.StartsWith("Assets/"))
+			
+				if (!assetPath.StartsWith(fullRootPrefix))
 				{
-					relativePath = relativePath.Substring(7);
+					continue;
 				}
+
 				
-				if (!relativePath.StartsWith(topLevelFolder + "/") && relativePath != topLevelFolder)
-					continue;
-					
-				if (relativePath == topLevelFolder)
-					continue;
-					
-				string pathWithoutTopLevel = relativePath.Substring(topLevelFolder.Length + 1);
+				string pathRelativeToRoot = assetPath.Substring(fullRootPrefix.Length);
 
-				string directoryPath = Path.GetDirectoryName(pathWithoutTopLevel);
+			
+				string directoryPath = Path.GetDirectoryName(pathRelativeToRoot);
+
+			
 				if (string.IsNullOrEmpty(directoryPath))
-					continue;
-
-				string[] pathParts = directoryPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-					.Where(p => !string.IsNullOrEmpty(p)).ToArray();
-				
-				if (pathParts.Length == 0)
-					continue;
-
-				string currentPath = "";
-				for (int i = 0; i < pathParts.Length; i++)
 				{
-					currentPath = Path.Combine(currentPath, pathParts[i]);
-					string fullPath = Path.Combine(outputPath, currentPath);
+					continue;
+				}
 
-					if (!createdDirectories.Contains(fullPath))
+				
+				string fullPath = Path.Combine(outputPath, directoryPath);
+				
+				if (!createdDirectories.Contains(fullPath))
+				{
+					if (!Directory.Exists(fullPath))
 					{
-						if (!Directory.Exists(fullPath))
-						{
-							Directory.CreateDirectory(fullPath);
-							Debug.Log($"Created directory: {fullPath}");
-						}
-						createdDirectories.Add(fullPath);
+						Directory.CreateDirectory(fullPath);
+						Debug.Log($"Created directory: {fullPath}");
 					}
+					createdDirectories.Add(fullPath);
 				}
 			}
 			
 			Debug.Log($"Created {createdDirectories.Count} directories for folder structure");
 		}
 
-		private string DetermineAssetPrefix(string assetBundleName)
+		private void WriteMasterBundleFile(string exportPath, string assetBundleName, string assetPrefix, string rootBundleFolderPath)
 		{
-			string[] assetPaths = AssetDatabase.GetAssetPathsFromAssetBundle(assetBundleName);
-			if (assetPaths.Length == 0)
-				return "Assets";
-				
-			string firstPath = assetPaths[0];
-			if (!firstPath.StartsWith("Assets/"))
-				return "Assets";
-				
-			string pathWithoutAssets = firstPath.Substring(7);
-			int firstSlash = pathWithoutAssets.IndexOf('/');
-			if (firstSlash < 0)
-				return $"Assets\\{pathWithoutAssets}";
-			
-			string topLevelFolder = pathWithoutAssets.Substring(0, firstSlash);
-			return $"Assets\\{topLevelFolder}";
-		}
-
-		private void WriteMasterBundleFile(string exportPath, string assetBundleName, string assetPrefix)
-		{
-			CreateFolderStructure(assetBundleName, exportPath);
+		
+			CreateFolderStructure(assetBundleName, exportPath, rootBundleFolderPath);
 			
 			string masterBundlePath = Path.Combine(exportPath, "MasterBundle.dat");
 			StringBuilder content = new StringBuilder();
@@ -466,16 +424,15 @@ namespace Tools
 			content.AppendLine($"Asset_Bundle_Version {assetBundleVersion}");
 			
 			File.WriteAllText(masterBundlePath, content.ToString());
-			Debug.Log($"Wrote MasterBundle.dat to {masterBundlePath} with Asset_Prefix {assetPrefix}");
+			Debug.Log($"Wrote MasterBundle.dat to {masterBundlePath} with Asset_Prefix {assetPrefix} based on root folder '{rootBundleFolderPath}'");
 			
-			ExportConfigFiles(assetBundleName, exportPath);
-			
-			Debug.Log("Skipping copy of important assets - only exporting .dat files");
+			ExportConfigFiles(assetBundleName, exportPath, rootBundleFolderPath);
 		}
 
-		private void ExportConfigFiles(string assetBundleName, string outputPath)
+		private void ExportConfigFiles(string assetBundleName, string outputPath, string rootBundleFolderPath)
 		{
 			int exportedCount = 0;
+			string fullRootPrefix = "Assets/" + rootBundleFolderPath.Trim('/', '\\') + "/";
 			
 			try
 			{
@@ -485,14 +442,22 @@ namespace Tools
 				
 				Debug.Log($"Found {itemAssetPaths.Length} items, {vehicleAssetPaths.Length} vehicles, {objectAssetPaths.Length} objects to process");
 				
-				string topLevelFolder = DetermineTopLevelFolder(assetBundleName);
+			
+				Debug.Log($"Exporting configs based on root folder: {fullRootPrefix}");
+				
+			
+				if (!Directory.Exists(outputPath))
+				{
+					Directory.CreateDirectory(outputPath);
+				}
 				
 				foreach (string guid in itemAssetPaths)
 				{
 					try
 					{
 						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
+					
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
 						{
 							UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
 							
@@ -500,9 +465,15 @@ namespace Tools
 							{
 								ItemDefinitionAsset item = asset as ItemDefinitionAsset;
 								
-								string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-								string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-									Path.Combine(outputPath, subfolder) : outputPath;
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping .dat export for item '{item.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+								
+								string targetDir = Path.Combine(outputPath, subfolder);
 								
 								if (!Directory.Exists(targetDir))
 								{
@@ -512,6 +483,11 @@ namespace Tools
 								ExporterUtility.ExportItemToExistingFolder(item, targetDir);
 								exportedCount++;
 								Debug.Log($"Exported item definition: {item.name} to {targetDir}");
+							}
+							else if (!string.IsNullOrEmpty(assetPath))
+							{
+						
+						
 							}
 						}
 					}
@@ -526,7 +502,8 @@ namespace Tools
 					try
 					{
 						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
+					
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
 						{
 							UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
 							
@@ -534,9 +511,15 @@ namespace Tools
 							{
 								VehicleAsset vehicle = asset as VehicleAsset;
 								
-								string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-								string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-									Path.Combine(outputPath, subfolder) : outputPath;
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping .dat export for vehicle '{vehicle.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+									
+								string targetDir = Path.Combine(outputPath, subfolder);
 								
 								if (!Directory.Exists(targetDir))
 								{
@@ -546,6 +529,10 @@ namespace Tools
 								ExporterUtility.ExportVehicleToExistingFolder(vehicle, targetDir);
 								exportedCount++;
 								Debug.Log($"Exported vehicle definition: {vehicle.name} to {targetDir}");
+							}
+							else if (!string.IsNullOrEmpty(assetPath))
+							{
+							
 							}
 						}
 					}
@@ -560,7 +547,8 @@ namespace Tools
 					try
 					{
 						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
+					
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
 						{
 							UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
 							
@@ -568,9 +556,15 @@ namespace Tools
 							{
 								ObjectDefinitionAsset obj = asset as ObjectDefinitionAsset;
 								
-								string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-								string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-									Path.Combine(outputPath, subfolder) : outputPath;
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping .dat export for object '{obj.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+									
+								string targetDir = Path.Combine(outputPath, subfolder);
 								
 								if (!Directory.Exists(targetDir))
 								{
@@ -581,6 +575,10 @@ namespace Tools
 								exportedCount++;
 								Debug.Log($"Exported object definition: {obj.name} to {targetDir}");
 							}
+							else if (!string.IsNullOrEmpty(assetPath))
+							{
+							
+							}
 						}
 					}
 					catch (Exception e)
@@ -589,409 +587,136 @@ namespace Tools
 					}
 				}
 				
-				ExportEditorOnlyAssets(outputPath, topLevelFolder);
-				
-				Debug.Log($"Exported {exportedCount} config files");
-			}
-			catch (Exception e)
-			{
-				Debug.LogError($"Error in ExportConfigFiles: {e.Message}\n{e.StackTrace}");
-			}
-		}
-
-		private void ExportEditorOnlyAssets(string outputPath, string topLevelFolder)
-		{
-			string[] stereoSongAssetPaths = AssetDatabase.FindAssets("t:StereoSongAsset");
-			Debug.Log($"Found {stereoSongAssetPaths.Length} stereo songs to export");
-			
-			foreach (string guid in stereoSongAssetPaths)
-			{
-				try
-				{
-					string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-					
-					if (!assetPath.Contains(topLevelFolder))
-						continue;
 						
-					StereoSongAsset asset = AssetDatabase.LoadAssetAtPath<StereoSongAsset>(assetPath);
-					
-					if (asset != null)
-					{
-						string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-						string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-							Path.Combine(outputPath, subfolder) : outputPath;
-						
-						if (!Directory.Exists(targetDir))
-						{
-							Directory.CreateDirectory(targetDir);
-						}
-						
-						ExporterUtility.ExportStereoSongToExistingFolder(asset, targetDir);
-						Debug.Log($"Exporting StereoSong: {asset.name} to {targetDir}");
-						
-						string expectedFileName = asset.name;
-						string expectedPath = Path.Combine(targetDir, $"{expectedFileName}.asset");
-						
-						if (File.Exists(expectedPath))
-						{
-							Debug.Log($"Successfully exported StereoSong: {expectedPath}");
-						}
-						else
-						{
-							Debug.LogError($"Failed to export StereoSong to expected path: {expectedPath}");
-						}
-					}
-				}
-				catch (Exception e)
-				{
-					Debug.LogWarning($"Error processing stereo song asset {guid}: {e.Message}");
-				}
-			}
-			
-			string[] materialPaletteAssetPaths = AssetDatabase.FindAssets("t:MaterialPaletteAsset");
-			Debug.Log($"Found {materialPaletteAssetPaths.Length} material palettes to export");
-			
-			foreach (string guid in materialPaletteAssetPaths)
-			{
-				try
-				{
-					string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-					
-					if (!assetPath.Contains(topLevelFolder))
-						continue;
-						
-					MaterialPaletteAsset asset = AssetDatabase.LoadAssetAtPath<MaterialPaletteAsset>(assetPath);
-					
-					if (asset != null)
-					{
-						string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-						string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-							Path.Combine(outputPath, subfolder) : outputPath;
-						
-						if (!Directory.Exists(targetDir))
-						{
-							Directory.CreateDirectory(targetDir);
-						}
-						
-						ExporterUtility.ExportMaterialPaletteToExistingFolder(asset, targetDir);
-						Debug.Log($"Exported material palette: {asset.name} to {targetDir}");
-					}
-				}
-				catch (Exception e)
-				{
-					Debug.LogWarning($"Error processing material palette asset {guid}: {e.Message}");
-				}
-			}
-			
-			string[] foliageResourceAssetPaths = AssetDatabase.FindAssets("t:FoliageResourceAsset");
-			Debug.Log($"Found {foliageResourceAssetPaths.Length} foliage resources to export");
-			
-			foreach (string guid in foliageResourceAssetPaths)
-			{
-				try
-				{
-					string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-					
-					if (!assetPath.Contains(topLevelFolder))
-						continue;
-						
-					FoliageResourceAsset asset = AssetDatabase.LoadAssetAtPath<FoliageResourceAsset>(assetPath);
-					
-					if (asset != null)
-					{
-						string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-						string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-							Path.Combine(outputPath, subfolder) : outputPath;
-						
-						if (!Directory.Exists(targetDir))
-						{
-							Directory.CreateDirectory(targetDir);
-						}
-						
-						ExporterUtility.ExportFoliageResourceToExistingFolder(asset, targetDir);
-						Debug.Log($"Exported foliage resource: {asset.name} to {targetDir}");
-					}
-				}
-				catch (Exception e)
-				{
-					Debug.LogWarning($"Error processing foliage resource asset {guid}: {e.Message}");
-				}
-			}
-		}
-
-		private string DetermineTopLevelFolder(string assetBundleName)
-		{
-			string[] assetPaths = AssetDatabase.GetAssetPathsFromAssetBundle(assetBundleName);
-			if (assetPaths.Length == 0)
-				return assetBundleName;
-			
-			foreach (string assetPath in assetPaths)
-			{
-				string relativePath = assetPath;
-				if (relativePath.StartsWith("Assets/"))
-				{
-					relativePath = relativePath.Substring(7); 
-					
-			
-					int firstSlash = relativePath.IndexOf('/');
-					if (firstSlash > 0)
-					{
-						return relativePath.Substring(0, firstSlash);
-					}
-					else if (!string.IsNullOrEmpty(relativePath))
-					{
-						return relativePath;
-					}
-				}
-			}
-			
-			return assetBundleName;
-		}
-
-		private void CopyOtherAssetFiles(string assetBundleName, string outputPath, string topLevelFolder)
-		{
-			Debug.Log("Skipping copy of other assets - only exporting .dat files");
-		}
-
-		private void CopyImportantAssets(string assetBundleName, string outputPath, string topLevelFolder)
-		{
-			int exportedCount = 0;
-			
-			try
-			{
-				string[] itemAssetPaths = AssetDatabase.FindAssets("t:ItemDefinitionAsset");
-				string[] vehicleAssetPaths = AssetDatabase.FindAssets("t:VehicleAsset");
-				string[] objectAssetPaths = AssetDatabase.FindAssets("t:ObjectDefinitionAsset");
-				string[] stereoSongAssetPaths = AssetDatabase.FindAssets("t:StereoSongAsset");
 				string[] materialPaletteAssetPaths = AssetDatabase.FindAssets("t:MaterialPaletteAsset");
-				string[] foliageResourceAssetPaths = AssetDatabase.FindAssets("t:FoliageResourceAsset");
-				
-				Debug.Log($"Found {itemAssetPaths.Length} items, {vehicleAssetPaths.Length} vehicles, {objectAssetPaths.Length} objects, " +
-					$"{stereoSongAssetPaths.Length} stereo songs, {materialPaletteAssetPaths.Length} material palettes, " +
-					$"{foliageResourceAssetPaths.Length} foliage resources to process");
-				
-				foreach (string guid in itemAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							ItemDefinitionAsset item = AssetDatabase.LoadAssetAtPath<ItemDefinitionAsset>(assetPath);
-							if (item == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportItemToExistingFolder(item, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported item: {item.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogError($"Error exporting item asset: {e.Message}");
-					}
-				}
-				
-				foreach (string guid in vehicleAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							VehicleAsset vehicle = AssetDatabase.LoadAssetAtPath<VehicleAsset>(assetPath);
-							if (vehicle == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportVehicleToExistingFolder(vehicle, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported vehicle: {vehicle.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogError($"Error exporting vehicle asset: {e.Message}");
-					}
-				}
-				
-				foreach (string guid in objectAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							ObjectDefinitionAsset obj = AssetDatabase.LoadAssetAtPath<ObjectDefinitionAsset>(assetPath);
-							if (obj == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportObjectToExistingFolder(obj, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported object: {obj.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogError($"Error exporting object asset: {e.Message}");
-					}
-				}
-				
-				foreach (string guid in stereoSongAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							StereoSongAsset stereoSong = AssetDatabase.LoadAssetAtPath<StereoSongAsset>(assetPath);
-							if (stereoSong == null)
-								continue;
-								
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-								
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							Debug.Log($"Exporting StereoSong: {stereoSong.name} to {targetDir}");
-							ExporterUtility.ExportStereoSongToExistingFolder(stereoSong, targetDir);
-							
-							string expectedFileName = stereoSong.name;
-							string expectedPath = Path.Combine(targetDir, $"{expectedFileName}.asset");
-							
-							if (File.Exists(expectedPath))
-							{
-								Debug.Log($"Successfully exported StereoSong: {expectedPath}");
-							}
-							else
-							{
-								Debug.LogError($"Failed to export StereoSong to expected path: {expectedPath}");
-							}
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogError($"Error exporting stereo song: {e.Message}\n{e.StackTrace}");
-					}
-				}
-				
+				Debug.Log($"Found {materialPaletteAssetPaths.Length} Material Palettes to process for config export");
 				foreach (string guid in materialPaletteAssetPaths)
 				{
 					try
 					{
 						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
 						{
-							MaterialPaletteAsset materialPalette = AssetDatabase.LoadAssetAtPath<MaterialPaletteAsset>(assetPath);
-							if (materialPalette == null)
-								continue;
-								
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-								
-							if (!Directory.Exists(targetDir))
+							MaterialPaletteAsset asset = AssetDatabase.LoadAssetAtPath<MaterialPaletteAsset>(assetPath);
+							if (asset != null)
 							{
-								Directory.CreateDirectory(targetDir);
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping config export for Material Palette '{asset.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+								string targetDir = Path.Combine(outputPath, subfolder);
+								if (!Directory.Exists(targetDir))
+								{
+									Directory.CreateDirectory(targetDir);
+								}
+								ExporterUtility.ExportMaterialPaletteToExistingFolder(asset, targetDir);
+								exportedCount++;
+								Debug.Log($"Exported material palette config: {asset.name} to {targetDir}");
 							}
-							
-							ExporterUtility.ExportMaterialPaletteToExistingFolder(materialPalette, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported material palette: {materialPalette.name} to {targetDir}");
 						}
 					}
 					catch (Exception e)
 					{
-						Debug.LogError($"Error exporting material palette: {e.Message}\n{e.StackTrace}");
+						Debug.LogWarning($"Error processing material palette asset {guid}: {e.Message}");
 					}
 				}
-				
+
+				string[] stereoSongAssetPaths = AssetDatabase.FindAssets("t:StereoSongAsset");
+				Debug.Log($"Found {stereoSongAssetPaths.Length} Stereo Songs to process for config export");
+				foreach (string guid in stereoSongAssetPaths)
+				{
+					try
+					{
+						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
+						{
+							StereoSongAsset asset = AssetDatabase.LoadAssetAtPath<StereoSongAsset>(assetPath);
+							if (asset != null)
+							{
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping config export for Stereo Song '{asset.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+								string targetDir = Path.Combine(outputPath, subfolder);
+								if (!Directory.Exists(targetDir))
+								{
+									Directory.CreateDirectory(targetDir);
+								}
+								ExporterUtility.ExportStereoSongToExistingFolder(asset, targetDir);
+								exportedCount++;
+								Debug.Log($"Exported stereo song config: {asset.name} to {targetDir}");
+							}
+						}
+					}
+					catch (Exception e)
+					{
+						Debug.LogWarning($"Error processing stereo song asset {guid}: {e.Message}");
+					}
+				}
+
+				string[] foliageResourceAssetPaths = AssetDatabase.FindAssets("t:FoliageResourceAsset");
+				Debug.Log($"Found {foliageResourceAssetPaths.Length} Foliage Resources to process for config export");
 				foreach (string guid in foliageResourceAssetPaths)
 				{
 					try
 					{
 						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
+						if (!string.IsNullOrEmpty(assetPath) && assetPath.StartsWith(fullRootPrefix))
 						{
-							FoliageResourceAsset foliageResource = AssetDatabase.LoadAssetAtPath<FoliageResourceAsset>(assetPath);
-							if (foliageResource == null)
-								continue;
-								
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-								
-							if (!Directory.Exists(targetDir))
+							FoliageResourceAsset asset = AssetDatabase.LoadAssetAtPath<FoliageResourceAsset>(assetPath);
+							if (asset != null)
 							{
-								Directory.CreateDirectory(targetDir);
+								string subfolder = GetAssetSubfolderPath(assetPath, rootBundleFolderPath);
+								if (string.IsNullOrEmpty(subfolder))
+								{
+									Debug.Log($"Skipping config export for Foliage Resource '{asset.name}' (Asset path: {assetPath}) because it is directly in the specified root folder '{rootBundleFolderPath}'.");
+									continue;
+								}
+								string targetDir = Path.Combine(outputPath, subfolder);
+								if (!Directory.Exists(targetDir))
+								{
+									Directory.CreateDirectory(targetDir);
+								}
+								ExporterUtility.ExportFoliageResourceToExistingFolder(asset, targetDir);
+								exportedCount++;
+								Debug.Log($"Exported foliage resource config: {asset.name} to {targetDir}");
 							}
-							
-							ExporterUtility.ExportFoliageResourceToExistingFolder(foliageResource, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported foliage resource: {foliageResource.name} to {targetDir}");
 						}
 					}
 					catch (Exception e)
 					{
-						Debug.LogError($"Error exporting foliage resource: {e.Message}\n{e.StackTrace}");
+						Debug.LogWarning($"Error processing foliage resource asset {guid}: {e.Message}");
 					}
 				}
-				
-				Debug.Log($"Exported {exportedCount} config files");
+
+				Debug.Log($"Exported {exportedCount} config files total (including .dat and .asset types)");
 			}
 			catch (Exception e)
 			{
-				Debug.LogError($"Error in CopyImportantAssets: {e.Message}\n{e.StackTrace}");
+				Debug.LogError($"Error exporting config files: {e.Message}");
 			}
 		}
 
-		private string GetAssetSubfolderPath(string assetPath, string topLevelFolder)
+		private string GetAssetSubfolderPath(string assetPath, string rootBundleFolderPath)
 		{
 			string subfolder = "";
-			if (assetPath.StartsWith("Assets/"))
+			string fullRootPrefix = "Assets/" + rootBundleFolderPath.Trim('/', '\\') + "/";
+
+			if (assetPath.StartsWith(fullRootPrefix))
 			{
-				string withoutAssets = assetPath.Substring(7);
-				if (withoutAssets.StartsWith(topLevelFolder + "/"))
-				{
-					int index = withoutAssets.IndexOf('/');
-					if (index >= 0 && index + 1 < withoutAssets.Length)
-					{
-						string afterTopFolder = withoutAssets.Substring(index + 1);
-						subfolder = Path.GetDirectoryName(afterTopFolder);
-					}
-				}
+			
+				string afterRootFolder = assetPath.Substring(fullRootPrefix.Length);
+				subfolder = Path.GetDirectoryName(afterRootFolder);
 			}
-			return subfolder;
+			else
+			{
+				Debug.LogWarning($"GetAssetSubfolderPath called with asset path '{assetPath}' which is not under the specified root '{fullRootPrefix}'. Returning empty subfolder.");
+			}
+			return subfolder; 
 		}
 
 		private void BuildAssetBundle(string assetBundleName, string outputPath, bool multiplatform)
@@ -1164,122 +889,6 @@ namespace Tools
 				{
 					Debug.LogWarning($"Failed to clean up temp directory: {e.Message}");
 				}
-			}
-		}
-
-		private void BruteForceCopyAllFiles(string assetBundleName, string outputPath)
-		{
-			string topLevelFolder = DetermineTopLevelFolder(assetBundleName);
-			Debug.Log($"Using top-level folder: {topLevelFolder}");
-			
-			int exportedCount = 0;
-			
-			try
-			{
-				string[] itemAssetPaths = AssetDatabase.FindAssets("t:ItemDefinitionAsset");
-				string[] vehicleAssetPaths = AssetDatabase.FindAssets("t:VehicleAsset");
-				string[] objectAssetPaths = AssetDatabase.FindAssets("t:ObjectDefinitionAsset");
-				
-				Debug.Log($"Found {itemAssetPaths.Length} items, {vehicleAssetPaths.Length} vehicles, {objectAssetPaths.Length} objects to process");
-				
-				foreach (string guid in itemAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							ItemDefinitionAsset item = AssetDatabase.LoadAssetAtPath<ItemDefinitionAsset>(assetPath);
-							if (item == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportItemToExistingFolder(item, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported item: {item.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogWarning($"Error exporting item: {e.Message}");
-					}
-				}
-				
-				foreach (string guid in vehicleAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							VehicleAsset vehicle = AssetDatabase.LoadAssetAtPath<VehicleAsset>(assetPath);
-							if (vehicle == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportVehicleToExistingFolder(vehicle, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported vehicle: {vehicle.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogWarning($"Error exporting vehicle: {e.Message}");
-					}
-				}
-				
-				foreach (string guid in objectAssetPaths)
-				{
-					try
-					{
-						string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-						if (!string.IsNullOrEmpty(assetPath) && assetPath.Contains(topLevelFolder))
-						{
-							ObjectDefinitionAsset obj = AssetDatabase.LoadAssetAtPath<ObjectDefinitionAsset>(assetPath);
-							if (obj == null)
-								continue;
-							
-							string subfolder = GetAssetSubfolderPath(assetPath, topLevelFolder);
-							string targetDir = !string.IsNullOrEmpty(subfolder) ? 
-								Path.Combine(outputPath, subfolder) : outputPath;
-							
-							if (!Directory.Exists(targetDir))
-							{
-								Directory.CreateDirectory(targetDir);
-							}
-							
-							ExporterUtility.ExportObjectToExistingFolder(obj, targetDir);
-							exportedCount++;
-							Debug.Log($"Exported object: {obj.name} to {targetDir}");
-						}
-					}
-					catch (Exception e)
-					{
-						Debug.LogWarning($"Error exporting object: {e.Message}");
-					}
-				}
-				
-				Debug.Log($"Exported {exportedCount} .dat files");
-			}
-			catch (Exception e)
-			{
-				Debug.LogError($"Error during direct export: {e.Message}\n{e.StackTrace}");
 			}
 		}
 	}

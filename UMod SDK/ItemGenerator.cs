@@ -8,10 +8,25 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-public class ClothingAssetGenerator : EditorWindow
+public class ItemAsset : EditorWindow
 {
-    private enum ClothingType { Shirt, Pants, Vest, Hat, Glasses, Mask, Backpack }
-    private enum SelectionMode { Single, Multiple }
+    private enum ItemType { Item, Barricade }
+    private enum ItemSubType 
+    { 
+        Supply,
+        Arrest_Start,
+        Arrest_End,
+        Filter,
+        Detenator,
+        Maps,
+        Medical,
+        Melee,
+        Tools,
+        Water,
+        Fuels,
+        Clouds,
+        Blueprints
+    }
     private enum ViewportMode { Single, MultiView }
     private enum ViewAngle { 
         Front, Back,
@@ -20,20 +35,18 @@ public class ClothingAssetGenerator : EditorWindow
         Orbit 
     }
 
-    private ClothingType clothingType = ClothingType.Shirt;
-    private SelectionMode selectionMode = SelectionMode.Multiple;
+    private ItemType itemType = ItemType.Item;
+    private ItemSubType itemSubType = ItemSubType.Supply;
     private bool useCustomIconPlacement = false;
+    private bool addTrapCollider = false;
     private Vector3 customIconOffset = Vector3.zero;
     private Vector3 customIconRotation = Vector3.zero;
-    private string textureFolderPath = "Assets";
     private string singleTexturePath = "";
-    private string exportPath = "Assets/Clothing";
-    private string[] availableTexturePaths;
-    private int selectedTextureIndex = -1;
-    private System.Random random = new System.Random();
+    private string exportPath = "Assets/Items";
     private Mesh selectedMesh;
     private AnimationClip equipAnimation;
     private AnimationClip useAnimation;
+    private AudioClip useSound;
     private PreviewRenderUtility previewRenderUtility;
     private GameObject previewInstance;
     private Material previewMaterial;
@@ -45,20 +58,17 @@ public class ClothingAssetGenerator : EditorWindow
     private Vector2 lastMousePosition;
     private Vector3 lastCameraPosition;
     private Vector3 lastCameraForward;
-    private const string PREFS_PREFIX = "ClothingGen_";
+    private const string PREFS_PREFIX = "ItemGen_";
+    private const string BASE_FOLDER_PATH = "Assets/Items/Barricades";
     private static readonly int MATERIAL_MODE = Shader.PropertyToID("_Mode");
     private static readonly int MATERIAL_CUTOFF = Shader.PropertyToID("_Cutoff");
     private static readonly int MATERIAL_SRC_BLEND = Shader.PropertyToID("_SrcBlend");
     private static readonly int MATERIAL_DST_BLEND = Shader.PropertyToID("_DstBlend");
     private static readonly int MATERIAL_ZWRITE = Shader.PropertyToID("_ZWrite");
     private bool isProcessing = false;
-    private float progress = 0f;
-    private int totalFiles = 0;
-    private int processedFiles = 0;
     private string currentFileName = "";
-    private CancellationTokenSource cancellationTokenSource;
-    private readonly Dictionary<ClothingType, ClothingTypeInfo> clothingTypeInfoMap;
-    private readonly HashSet<ClothingType> specialTypesSet;
+    private readonly Dictionary<ItemType, ItemTypeInfo> itemTypeInfoMap;
+    private readonly HashSet<ItemType> specialTypesSet;
 
     private Material highlightMaterial;
     private Color highlightColor = new Color(1f, 0.5f, 0f, 0.8f);
@@ -72,6 +82,7 @@ public class ClothingAssetGenerator : EditorWindow
     private bool useCustomBackground = false;
     private Texture2D backgroundTexture;
     private Vector2 previewScrollPosition;
+    private Vector2 scrollPosition;
 
     private Dictionary<ViewAngle, Vector3> viewRotations = new Dictionary<ViewAngle, Vector3>()
     {
@@ -121,7 +132,19 @@ public class ClothingAssetGenerator : EditorWindow
     private const float MOVEMENT_SPEED = 0.1f;
     private bool isFocused = false;
 
-    private Vector2 scrollPosition;
+    private List<Mesh> additionalMeshes = new List<Mesh>();
+    private List<Material> additionalMaterials = new List<Material>();
+    private HashSet<ItemSubType> multiModelTypes = new HashSet<ItemSubType>
+    {
+        ItemSubType.Arrest_Start,
+        ItemSubType.Arrest_End,
+        ItemSubType.Filter,
+        ItemSubType.Detenator,
+        ItemSubType.Maps,
+        ItemSubType.Medical,
+        ItemSubType.Melee,
+        ItemSubType.Tools
+    };
 
     private string customFolderName = "";
     private bool useCustomFolderName = false;
@@ -132,36 +155,28 @@ public class ClothingAssetGenerator : EditorWindow
         { "previewSettings", true },
         { "modelSettings", true },
         { "animationSettings", true },
+        { "audioSettings", true },
         { "exportSettings", true }
     };
 
-    public ClothingAssetGenerator()
-    {
-        clothingTypeInfoMap = new Dictionary<ClothingType, ClothingTypeInfo>
-        {
-            { ClothingType.Shirt, new ClothingTypeInfo("Shirts", "shirt.png") },
-            { ClothingType.Pants, new ClothingTypeInfo("Pants", "pants.png") },
-            { ClothingType.Vest, new ClothingTypeInfo("Vests", "vest.png") },
-            { ClothingType.Hat, new ClothingTypeInfo("Hats", "Hat.png") },
-            { ClothingType.Glasses, new ClothingTypeInfo("Glasses", "Glasses.png") },
-            { ClothingType.Mask, new ClothingTypeInfo("Masks", "Mask.png") },
-            { ClothingType.Backpack, new ClothingTypeInfo("Backpacks", "Backpack.png") }
-        };
-
-        specialTypesSet = new HashSet<ClothingType>
-        {
-            ClothingType.Vest,
-            ClothingType.Hat,
-            ClothingType.Glasses,
-            ClothingType.Mask,
-            ClothingType.Backpack
-        };
-    }
-
-    [MenuItem("UMod SDK/Clothing Generator")]
+    [MenuItem("UMod SDK/Item Generator")]
     public static void ShowWindow()
     {
-        GetWindow<ClothingAssetGenerator>("Clothing Generator");
+        GetWindow<ItemAsset>("Item Generator");
+    }
+
+    public ItemAsset()
+    {
+        itemTypeInfoMap = new Dictionary<ItemType, ItemTypeInfo>
+        {
+            { ItemType.Item, new ItemTypeInfo("Items", "item.png") },
+            { ItemType.Barricade, new ItemTypeInfo("Barricades", "barricade.png") }
+        };
+
+        specialTypesSet = new HashSet<ItemType>
+        {
+            ItemType.Barricade
+        };
     }
 
     private void OnEnable()
@@ -170,21 +185,22 @@ public class ClothingAssetGenerator : EditorWindow
         InitializePreviewRenderUtility();
         InitializeHighlightMaterial();
         EditorApplication.update += Repaint;
-        RefreshAvailableTextures();
     }
 
     private void LoadPreferences()
     {
-        textureFolderPath = EditorPrefs.GetString($"{PREFS_PREFIX}TextureFolder", "Assets");
         singleTexturePath = EditorPrefs.GetString($"{PREFS_PREFIX}SingleTexture", "");
-        exportPath = EditorPrefs.GetString($"{PREFS_PREFIX}ExportPath", "Assets/Clothing");
-        clothingType = (ClothingType)EditorPrefs.GetInt($"{PREFS_PREFIX}Type", 0);
+        exportPath = EditorPrefs.GetString($"{PREFS_PREFIX}ExportPath", "Assets/Items");
+        itemType = (ItemType)EditorPrefs.GetInt($"{PREFS_PREFIX}Type", 0);
+        itemSubType = (ItemSubType)EditorPrefs.GetInt($"{PREFS_PREFIX}SubType", 0);
         selectedMesh = AssetDatabase.LoadAssetAtPath<Mesh>(EditorPrefs.GetString($"{PREFS_PREFIX}MeshPath", ""));
         equipAnimation = AssetDatabase.LoadAssetAtPath<AnimationClip>(EditorPrefs.GetString($"{PREFS_PREFIX}EquipAnimPath", ""));
         useAnimation = AssetDatabase.LoadAssetAtPath<AnimationClip>(EditorPrefs.GetString($"{PREFS_PREFIX}UseAnimPath", ""));
-        selectionMode = (SelectionMode)EditorPrefs.GetInt($"{PREFS_PREFIX}SelectionMode", 1);
+        useSound = AssetDatabase.LoadAssetAtPath<AudioClip>(EditorPrefs.GetString($"{PREFS_PREFIX}UseSoundPath", ""));
         customFolderName = EditorPrefs.GetString($"{PREFS_PREFIX}CustomFolderName", "");
         useCustomFolderName = EditorPrefs.GetBool($"{PREFS_PREFIX}UseCustomFolderName", false);
+        additionalMeshes.Clear();
+        additionalMaterials.Clear();
     }
 
     private void InitializePreviewRenderUtility()
@@ -220,14 +236,14 @@ public class ClothingAssetGenerator : EditorWindow
 
     private void SavePreferences()
     {
-        EditorPrefs.SetString($"{PREFS_PREFIX}TextureFolder", textureFolderPath);
         EditorPrefs.SetString($"{PREFS_PREFIX}SingleTexture", singleTexturePath);
         EditorPrefs.SetString($"{PREFS_PREFIX}ExportPath", exportPath);
-        EditorPrefs.SetInt($"{PREFS_PREFIX}Type", (int)clothingType);
+        EditorPrefs.SetInt($"{PREFS_PREFIX}Type", (int)itemType);
+        EditorPrefs.SetInt($"{PREFS_PREFIX}SubType", (int)itemSubType);
         EditorPrefs.SetString($"{PREFS_PREFIX}MeshPath", AssetDatabase.GetAssetPath(selectedMesh));
         EditorPrefs.SetString($"{PREFS_PREFIX}EquipAnimPath", AssetDatabase.GetAssetPath(equipAnimation));
         EditorPrefs.SetString($"{PREFS_PREFIX}UseAnimPath", AssetDatabase.GetAssetPath(useAnimation));
-        EditorPrefs.SetInt($"{PREFS_PREFIX}SelectionMode", (int)selectionMode);
+        EditorPrefs.SetString($"{PREFS_PREFIX}UseSoundPath", AssetDatabase.GetAssetPath(useSound));
         EditorPrefs.SetString($"{PREFS_PREFIX}CustomFolderName", customFolderName);
         EditorPrefs.SetBool($"{PREFS_PREFIX}UseCustomFolderName", useCustomFolderName);
     }
@@ -263,19 +279,12 @@ public class ClothingAssetGenerator : EditorWindow
 
     private void CancelProcessing()
     {
-        if (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested)
-        {
-            cancellationTokenSource.Cancel();
-            cancellationTokenSource.Dispose();
-            cancellationTokenSource = null;
-        }
-
         isProcessing = false;
     }
 
     private void OnGUI()
     {
-        GUILayout.Label("Clothing Generator Tool", EditorStyles.boldLabel);
+        GUILayout.Label("Item Generator Tool", EditorStyles.boldLabel);
 
         if (isProcessing)
         {
@@ -296,7 +305,7 @@ public class ClothingAssetGenerator : EditorWindow
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("Generate Item", GUILayout.Width(200), GUILayout.Height(30)))
                 {
-                    GenerateItems();
+                    GenerateItem();
                 }
                 GUILayout.FlexibleSpace();
             }
@@ -309,308 +318,200 @@ public class ClothingAssetGenerator : EditorWindow
 
     private void DrawMainControls()
     {
-        using (new EditorGUILayout.VerticalScope())
+        foldoutStates["itemSettings"] = EditorGUILayout.Foldout(foldoutStates["itemSettings"], "Item Settings", true);
+        if (foldoutStates["itemSettings"])
         {
-            foldoutStates["itemSettings"] = EditorGUILayout.Foldout(foldoutStates["itemSettings"], "Clothing Settings", true);
-            if (foldoutStates["itemSettings"])
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                EditorGUILayout.Space(5);
+                itemType = (ItemType)EditorGUILayout.EnumPopup("Type", itemType);
+
+                if (itemType == ItemType.Item)
                 {
-                    EditorGUILayout.Space(5);
-                    clothingType = (ClothingType)EditorGUILayout.EnumPopup("Type", clothingType);
-                    selectionMode = (SelectionMode)EditorGUILayout.EnumPopup("Selection Mode", selectionMode);
-                    useCustomIconPlacement = EditorGUILayout.Toggle("Use Camera Position", useCustomIconPlacement);
+                    EditorGUI.indentLevel++;
+                    itemSubType = (ItemSubType)EditorGUILayout.EnumPopup("Item Category", itemSubType);
+                    EditorGUI.indentLevel--;
+                }
+
+                useCustomIconPlacement = EditorGUILayout.Toggle("Use Camera Position", useCustomIconPlacement);
+                
+                if (itemType == ItemType.Barricade)
+                {
+                    addTrapCollider = EditorGUILayout.Toggle("Add Trap Collider", addTrapCollider);
                 }
             }
+        }
 
-            EditorGUILayout.Space(5);
+        EditorGUILayout.Space(10);
 
-            foldoutStates["textureSettings"] = EditorGUILayout.Foldout(foldoutStates["textureSettings"], "Texture Settings", true);
-            if (foldoutStates["textureSettings"])
+        foldoutStates["textureSettings"] = EditorGUILayout.Foldout(foldoutStates["textureSettings"], "Texture Settings", true);
+        if (foldoutStates["textureSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    EditorGUILayout.Space(5);
-                    if (selectionMode == SelectionMode.Multiple)
-                    {
-                        DisplayMultipleModeControls();
-                    }
-                    else
-                    {
-                        DisplaySingleModeControls();
-                    }
-                }
+                EditorGUILayout.Space(5);
+                DisplaySingleModeControls();
             }
+        }
 
-            EditorGUILayout.Space(5);
+        EditorGUILayout.Space(10);
 
-            foldoutStates["previewSettings"] = EditorGUILayout.Foldout(foldoutStates["previewSettings"], "Preview", true);
-            if (foldoutStates["previewSettings"])
+        foldoutStates["previewSettings"] = EditorGUILayout.Foldout(foldoutStates["previewSettings"], "Preview", true);
+        if (foldoutStates["previewSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                EditorGUILayout.Space(5);
+                DrawSingleModePreview();
+            }
+        }
+
+        EditorGUILayout.Space(10);
+
+        foldoutStates["modelSettings"] = EditorGUILayout.Foldout(foldoutStates["modelSettings"], "Models", true);
+        if (foldoutStates["modelSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.Space(5);
+                selectedMesh = (Mesh)EditorGUILayout.ObjectField("Model_0", selectedMesh, typeof(Mesh), false);
+
+                if (itemType == ItemType.Item && multiModelTypes.Contains(itemSubType))
                 {
-                    EditorGUILayout.Space(5);
-                    if (selectionMode == SelectionMode.Multiple)
+                    EditorGUI.indentLevel++;
+                    
+                    for (int i = 0; i < additionalMeshes.Count; i++)
                     {
-                        if (availableTexturePaths != null && availableTexturePaths.Length > 0)
+                        EditorGUILayout.BeginHorizontal();
+                        additionalMeshes[i] = (Mesh)EditorGUILayout.ObjectField($"Model_{i + 1}", additionalMeshes[i], typeof(Mesh), false);
+                        
+                        if (GUILayout.Button("Remove", GUILayout.Width(60)))
                         {
-                            DrawMultipleModePreview();
+                            additionalMeshes.RemoveAt(i);
+                            if (i < additionalMaterials.Count)
+                                additionalMaterials.RemoveAt(i);
+                            i--;
                         }
+                        EditorGUILayout.EndHorizontal();
                     }
-                    else
-                    {
-                        DrawSingleModePreview();
-                    }
-                }
-            }
 
-            EditorGUILayout.Space(5);
-
-            foldoutStates["modelSettings"] = EditorGUILayout.Foldout(foldoutStates["modelSettings"], "Model", true);
-            if (foldoutStates["modelSettings"])
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    EditorGUILayout.Space(5);
-                    selectedMesh = (Mesh)EditorGUILayout.ObjectField("Item", selectedMesh, typeof(Mesh), false);
-                }
-            }
-
-            EditorGUILayout.Space(5);
-
-        
-            foldoutStates["animationSettings"] = EditorGUILayout.Foldout(foldoutStates["animationSettings"], "Animations", true);
-            if (foldoutStates["animationSettings"])
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    EditorGUILayout.Space(5);
-                    equipAnimation = (AnimationClip)EditorGUILayout.ObjectField("Equip Animation", equipAnimation, typeof(AnimationClip), false);
-                    useAnimation = (AnimationClip)EditorGUILayout.ObjectField("Use Animation", useAnimation, typeof(AnimationClip), false);
-                }
-            }
-
-            EditorGUILayout.Space(5);
-
-    
-            foldoutStates["exportSettings"] = EditorGUILayout.Foldout(foldoutStates["exportSettings"], "Export Settings", true);
-            if (foldoutStates["exportSettings"])
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
                     EditorGUILayout.Space(5);
                     
-         
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.PrefixLabel("Export Location");
-                    
-                    EditorGUILayout.LabelField(exportPath, EditorStyles.textField);
-                    
-                    if (GUILayout.Button("Browse", GUILayout.Width(60)))
+                    using (new EditorGUILayout.HorizontalScope())
                     {
-                        string selectedPath = EditorUtility.OpenFolderPanel("Select Export Location", Application.dataPath, "");
-                        if (!string.IsNullOrEmpty(selectedPath))
+                        GUILayout.FlexibleSpace();
+                        if (GUILayout.Button("Add Model", GUILayout.Width(100)))
                         {
-                            if (selectedPath.StartsWith(Application.dataPath))
-                            {
-                                exportPath = "Assets" + selectedPath.Substring(Application.dataPath.Length);
-                            }
-                            else
-                            {
-                                EditorUtility.DisplayDialog("Invalid Path", "Please select a folder inside the Assets directory.", "OK");
-                            }
+                            additionalMeshes.Add(null);
+                            additionalMaterials.Add(null);
                         }
+                        GUILayout.FlexibleSpace();
                     }
-                    EditorGUILayout.EndHorizontal();
 
-                    if (selectionMode == SelectionMode.Single)
+                    EditorGUI.indentLevel--;
+                }
+            }
+        }
+
+        EditorGUILayout.Space(10);
+
+        foldoutStates["animationSettings"] = EditorGUILayout.Foldout(foldoutStates["animationSettings"], "Animations", true);
+        if (foldoutStates["animationSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.Space(5);
+                equipAnimation = (AnimationClip)EditorGUILayout.ObjectField("Equip Animation", equipAnimation, typeof(AnimationClip), false);
+                useAnimation = (AnimationClip)EditorGUILayout.ObjectField("Use Animation", useAnimation, typeof(AnimationClip), false);
+            }
+        }
+
+        EditorGUILayout.Space(10);
+
+        foldoutStates["audioSettings"] = EditorGUILayout.Foldout(foldoutStates["audioSettings"], "Audio", true);
+        if (foldoutStates["audioSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.Space(5);
+                useSound = (AudioClip)EditorGUILayout.ObjectField("Use Sound", useSound, typeof(AudioClip), false);
+            }
+        }
+
+        EditorGUILayout.Space(10);
+
+        foldoutStates["exportSettings"] = EditorGUILayout.Foldout(foldoutStates["exportSettings"], "Export Settings", true);
+        if (foldoutStates["exportSettings"])
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PrefixLabel("Export Location");
+                
+                EditorGUILayout.LabelField(exportPath, EditorStyles.textField);
+                
+                if (GUILayout.Button("Browse", GUILayout.Width(60)))
+                {
+                    string selectedPath = EditorUtility.OpenFolderPanel("Select Export Location", Application.dataPath, "");
+                    if (!string.IsNullOrEmpty(selectedPath))
                     {
-                        useCustomFolderName = EditorGUILayout.Toggle("Use Custom Folder Name", useCustomFolderName);
-                        if (useCustomFolderName)
+                        if (selectedPath.StartsWith(Application.dataPath))
                         {
-                            EditorGUI.indentLevel++;
-                            customFolderName = EditorGUILayout.TextField("Folder Name", customFolderName);
-                            EditorGUI.indentLevel--;
+                            exportPath = "Assets" + selectedPath.Substring(Application.dataPath.Length);
+                        }
+                        else
+                        {
+                            EditorUtility.DisplayDialog("Invalid Path", "Please select a folder inside the Assets directory.", "OK");
                         }
                     }
-                    else
-                    {
-            
-                        useCustomFolderName = false;
-                        customFolderName = "";
-                    }
+                }
+                EditorGUILayout.EndHorizontal();
+
+                useCustomFolderName = EditorGUILayout.Toggle("Use Custom Folder Name", useCustomFolderName);
+                if (useCustomFolderName)
+                {
+                    EditorGUI.indentLevel++;
+                    customFolderName = EditorGUILayout.TextField("Folder Name", customFolderName);
+                    EditorGUI.indentLevel--;
                 }
             }
         }
     }
 
-    private async void GenerateItems()
-    {
-        if (selectionMode == SelectionMode.Multiple)
-        {
-            await GenerateMultipleItems();
-        }
-        else
-        {
-            await GenerateSingleItem();
-        }
-    }
-
-    private async Task GenerateMultipleItems()
-    {
-        cancellationTokenSource = new CancellationTokenSource();
-        try
-        {
-            isProcessing = true;
-            string[] pngPaths = await Task.Run(() => Directory.GetFiles(textureFolderPath, "*.png", SearchOption.AllDirectories));
-
-            if (pngPaths.Length == 0)
-            {
-                Debug.LogWarning("No PNG files found in selected folder.");
-                return;
-            }
-
-            totalFiles = pngPaths.Length;
-            processedFiles = 0;
-            progress = 0f;
-
-            int maxConcurrent = Math.Max(1, Environment.ProcessorCount - 1);
-            using (var semaphore = new SemaphoreSlim(maxConcurrent))
-            {
-                var tasks = pngPaths.Select(async path =>
-                {
-                    await semaphore.WaitAsync();
-                    try
-                    {
-                        await ProcessSingleTexture(path);
-                        processedFiles++;
-                        progress = (float)processedFiles / totalFiles;
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
-
-                await Task.WhenAll(tasks);
-            }
-
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            Debug.Log($"✅ Generated {processedFiles} clothing item(s).");
-        }
-        catch (OperationCanceledException)
-        {
-            Debug.Log("Operation was canceled.");
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task GenerateSingleItem()
+    private void GenerateItem()
     {
         if (string.IsNullOrEmpty(singleTexturePath)) return;
 
         isProcessing = true;
-        cancellationTokenSource = new CancellationTokenSource();
         try
         {
-            await ProcessSingleTexture(singleTexturePath);
+            Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>(singleTexturePath);
+            if (tex != null)
+            {
+                GenerateItem(tex);
+            }
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+            Debug.Log("✅ Generated barricade successfully.");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error generating barricade: {ex.Message}");
         }
         finally
         {
             isProcessing = false;
-            if (cancellationTokenSource != null)
-            {
-                cancellationTokenSource.Dispose();
-                cancellationTokenSource = null;
-            }
         }
-    }
-
-    private async Task ProcessSingleTexture(string path)
-    {
-        if (cancellationTokenSource == null || cancellationTokenSource.Token.IsCancellationRequested) return;
-
-        currentFileName = Path.GetFileNameWithoutExtension(path);
-        await Task.Run(() =>
-        {
-            if (cancellationTokenSource.Token.IsCancellationRequested) return;
-
-            EditorApplication.delayCall += () =>
-            {
-                try
-                {
-                    Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                    if (tex != null)
-                    {
-                        GenerateClothing(tex);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Error processing {path}: {ex.Message}");
-                }
-            };
-        });
     }
 
     private void DisplayProgressBar()
     {
         EditorGUILayout.HelpBox($"Processing {currentFileName}", MessageType.Info);
-        Rect progressRect = EditorGUILayout.GetControlRect(false, 20);
-        EditorGUI.ProgressBar(progressRect, progress, $"Processing {processedFiles}/{totalFiles}");
-
         if (GUILayout.Button("Cancel"))
         {
-            CancelProcessing();
-        }
-    }
-
-    private void DisplayMultipleModeControls()
-    {
-        using (new EditorGUILayout.VerticalScope())
-        {
-            EditorGUI.BeginChangeCheck();
-            textureFolderPath = EditorGUILayout.TextField("Texture Folder", textureFolderPath);
-            
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Browse Folder"))
-                {
-                    string selected = EditorUtility.OpenFolderPanel("Select PNG Folder", Application.dataPath, "");
-                    if (!string.IsNullOrEmpty(selected) && selected.StartsWith(Application.dataPath))
-                    {
-                        textureFolderPath = "Assets" + selected.Substring(Application.dataPath.Length);
-                        RefreshAvailableTextures();
-                    }
-                }
-
-                if (GUILayout.Button("Refresh", GUILayout.Width(60)))
-                {
-                    RefreshAvailableTextures();
-                }
-
-                if (GUILayout.Button("Random", GUILayout.Width(60)) && availableTexturePaths != null && availableTexturePaths.Length > 0)
-                {
-                    selectedTextureIndex = random.Next(0, availableTexturePaths.Length);
-                    Repaint();
-                }
-            }
-
-            if (availableTexturePaths != null && availableTexturePaths.Length > 0)
-            {
-                string[] displayNames = availableTexturePaths.Select(Path.GetFileNameWithoutExtension).ToArray();
-                selectedTextureIndex = EditorGUILayout.Popup("Preview Texture", selectedTextureIndex, displayNames);
-            }
-            else
-            {
-                EditorGUILayout.HelpBox("No PNG files found in the selected folder.", MessageType.Warning);
-            }
+            isProcessing = false;
         }
     }
 
@@ -744,11 +645,11 @@ public class ClothingAssetGenerator : EditorWindow
                     Repaint();
                 }
             }
+        }
 
-            if (e.type != EventType.Layout && e.type != EventType.Repaint)
-            {
-                Repaint();
-            }
+        if (e.type != EventType.Layout && e.type != EventType.Repaint)
+        {
+            Repaint();
         }
     }
 
@@ -851,106 +752,6 @@ public class ClothingAssetGenerator : EditorWindow
         DrawPreview(previewRect);
     }
 
-    private void DrawMultipleModePreview()
-    {
-        if (selectedTextureIndex < 0 || selectedTextureIndex >= availableTexturePaths.Length) return;
-
-        GUILayout.Space(10);
-        
-        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-        {
-            EditorGUILayout.LabelField("Preview Settings", EditorStyles.boldLabel);
-            
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                using (new EditorGUILayout.VerticalScope(GUILayout.Width(200)))
-                {
-                    viewportMode = (ViewportMode)EditorGUILayout.EnumPopup("View Mode", viewportMode);
-                    currentView = (ViewAngle)EditorGUILayout.EnumPopup("Camera Angle", currentView);
-
-                    if (currentView == ViewAngle.Orbit)
-                    {
-                        EditorGUILayout.Space(5);
-                        useCustomOrbitPosition = EditorGUILayout.ToggleLeft("Use Custom Position", useCustomOrbitPosition);
-                        
-                        if (useCustomOrbitPosition)
-                        {
-                            EditorGUI.indentLevel++;
-                            Vector3 customPos = customCameraPositions[ViewAngle.Orbit];
-                            Vector3 customRot = customCameraRotations[ViewAngle.Orbit];
-                            
-                            EditorGUI.BeginChangeCheck();
-                            customPos = EditorGUILayout.Vector3Field("Position", customPos);
-                            customRot = EditorGUILayout.Vector3Field("Rotation", customRot);
-                            if (EditorGUI.EndChangeCheck())
-                            {
-                                customCameraPositions[ViewAngle.Orbit] = customPos;
-                                customCameraRotations[ViewAngle.Orbit] = customRot;
-                                
-                                previewEulerAngles = new Vector2(customRot.y, customRot.x);
-                                previewPanOffset = customPos;
-                                
-                                Repaint();
-                            }
-                            EditorGUI.indentLevel--;
-                        }
-                    }
-                }
-
-                GUILayout.Space(20);
-
-                using (new EditorGUILayout.VerticalScope(GUILayout.Width(200)))
-                {
-                    useCustomBackground = EditorGUILayout.Toggle("Custom Background", useCustomBackground);
-                    if (useCustomBackground)
-                    {
-                        backgroundColor = EditorGUILayout.ColorField("Background Color", backgroundColor);
-                        backgroundTexture = (Texture2D)EditorGUILayout.ObjectField("Background Image", backgroundTexture, typeof(Texture2D), false);
-                    }
-                }
-
-                GUILayout.FlexibleSpace();
-            }
-
-            GUILayout.Space(5);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (viewportMode == ViewportMode.Single && currentView == ViewAngle.Orbit)
-                {
-                    if (GUILayout.Button("Reset Camera", GUILayout.Width(100)))
-                    {
-                        ResetOrbitView();
-                    }
-                }
-                
-                GUILayout.FlexibleSpace();
-                
-                if (GUILayout.Button("Export Preview", GUILayout.Width(100)))
-                {
-                    ExportPreview();
-                }
-            }
-        }
-
-        GUILayout.Space(5);
-        EditorGUILayout.HelpBox("Preview shows actual material settings as they will appear in-game", MessageType.Info);
-
-        if (currentView == ViewAngle.Orbit)
-        {
-            EditorGUILayout.HelpBox("Left: Rotate | Middle: Pan | Scroll: Zoom | WASD/QE: Move", MessageType.Info);
-        }
-
-        Rect previewRect = GUILayoutUtility.GetRect(300, 300, GUILayout.ExpandWidth(true));
-        HandlePreviewInput(previewRect);
-
-        string currentTexturePath = availableTexturePaths[selectedTextureIndex];
-        if (Event.current.type == EventType.Repaint)
-        {
-            DrawPreviewForTexture(previewRect, currentTexturePath);
-        }
-    }
-
     private void SetupPreviewLighting()
     {
         if (previewRenderUtility.lights == null || previewRenderUtility.lights.Length == 0) return;
@@ -991,84 +792,6 @@ public class ClothingAssetGenerator : EditorWindow
         }
 
         DrawPreviewControls(rect);
-    }
-
-    private void DrawPreviewForTexture(Rect rect, string texturePath)
-    {
-        Texture2D previewTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
-        if (previewTexture == null) return;
-
-        UpdatePreviewMaterial(previewTexture);
-
-        if (viewportMode == ViewportMode.MultiView)
-        {
-            DrawMultiViewPreview(rect);
-        }
-        else
-        {
-            DrawPreviewWithAngle(rect, currentView);
-        }
-
-        DrawPreviewControls(rect);
-    }
-
-    private void UpdatePreviewMaterial(Texture2D texture)
-    {
-        if (previewMaterial == null)
-        {
-            previewMaterial = new Material(Shader.Find("Standard"));
-            previewMaterial.SetFloat(MATERIAL_MODE, 1);
-            previewMaterial.SetOverrideTag("RenderType", "TransparentCutout");
-            previewMaterial.SetInt(MATERIAL_SRC_BLEND, (int)UnityEngine.Rendering.BlendMode.One);
-            previewMaterial.SetInt(MATERIAL_DST_BLEND, (int)UnityEngine.Rendering.BlendMode.Zero);
-            previewMaterial.SetInt(MATERIAL_ZWRITE, 1);
-            previewMaterial.DisableKeyword("_ALPHABLEND_ON");
-            previewMaterial.EnableKeyword("_ALPHATEST_ON");
-            previewMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            previewMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
-            previewMaterial.SetFloat(MATERIAL_CUTOFF, 0.5f);
-        }
-
-        previewMaterial.mainTexture = texture;
-    }
-
-    private void DrawPreviewControls(Rect rect)
-    {
-        
-    }
-
-    private void DrawMultiViewPreview(Rect totalRect)
-    {
-        float padding = 2f;
-        float thirdWidth = (totalRect.width - padding * 2) / 3f;
-        float thirdHeight = (totalRect.height - padding * 2) / 3f;
-
-        Rect frontRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y, thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(frontRect, ViewAngle.Front);
-
-        Rect backRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y + 2 * (thirdHeight + padding), thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(backRect, ViewAngle.Back);
-
-        Rect leftRect = new Rect(totalRect.x, totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(leftRect, ViewAngle.Left);
-
-        Rect rightRect = new Rect(totalRect.x + 2 * (thirdWidth + padding), totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(rightRect, ViewAngle.Right);
-
-        Rect topRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y, thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(topRect, ViewAngle.Top);
-
-        Rect bottomRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
-        DrawPreviewWithAngle(bottomRect, ViewAngle.Bottom);
-
-        Rect orbitRect = new Rect(totalRect.x + 2 * (thirdWidth + padding), totalRect.y + 2 * (thirdHeight + padding), thirdWidth, thirdHeight);
-        
-        if (Event.current.type != EventType.Repaint)
-        {
-            HandlePreviewInput(orbitRect);
-        }
-        
-        DrawPreviewWithAngle(orbitRect, ViewAngle.Orbit);
     }
 
     private void DrawPreviewWithAngle(Rect rect, ViewAngle angle)
@@ -1195,6 +918,7 @@ public class ClothingAssetGenerator : EditorWindow
         var originalBackgroundColor = previewRenderUtility.camera.backgroundColor;
 
         RenderTexture rt = RenderTexture.GetTemporary(1024, 1024, 24, RenderTextureFormat.ARGB32);
+        
         Texture2D tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
         
         try
@@ -1280,75 +1004,91 @@ public class ClothingAssetGenerator : EditorWindow
             previewMaterial,
             0);
     }
-
-    private struct ClothingTypeInfo
+    
+    private struct ItemTypeInfo
     {
         public string FolderName;
         public string ImageName;
 
-        public ClothingTypeInfo(string folderName, string imageName)
+        public ItemTypeInfo(string folderName, string imageName)
         {
             FolderName = folderName;
             ImageName = imageName;
         }
     }
 
-    private void GenerateClothing(Texture2D selectedTexture)
+    private void GenerateItem(Texture2D selectedTexture)
     {
         if (selectedTexture == null)
             throw new ArgumentNullException(nameof(selectedTexture));
 
         string originalPath = AssetDatabase.GetAssetPath(selectedTexture);
         string fileName = Path.GetFileNameWithoutExtension(originalPath);
-        ClothingTypeInfo typeInfo = clothingTypeInfoMap[clothingType];
-
-        string folderName = useCustomFolderName && !string.IsNullOrEmpty(customFolderName) ? customFolderName : fileName;
-        string baseFolder = $"{exportPath}/{typeInfo.FolderName}/{folderName}";
-        CreateFolderStructure(typeInfo.FolderName, folderName);
         
-        if (!AssetDatabase.IsValidFolder(baseFolder))
+        string baseFolder;
+        if (itemType == ItemType.Item)
         {
-            Debug.LogError($"Failed to create folder structure at: {baseFolder}");
-            return;
+            baseFolder = $"{exportPath}/{itemSubType}/{(useCustomFolderName ? customFolderName : fileName)}";
         }
+        else
+        {
+            baseFolder = $"{exportPath}/Barricades/{(useCustomFolderName ? customFolderName : fileName)}";
+        }
+
+        CreateFolderStructure(fileName);
+        AssetDatabase.Refresh();
 
         EnsureTagExists("Item");
         EnsureLayerExists("Item");
         EnsureTagExists("Logic");
         EnsureLayerExists("Logic");
 
-        if (specialTypesSet.Contains(clothingType))
+        if (itemType == ItemType.Barricade)
         {
-            EnsureTagExists("Enemy");
-            EnsureLayerExists("Enemy");
+            EnsureTagExists("Barricade");
+            EnsureLayerExists("Barricade");
+            EnsureTagExists("Trap");
+            EnsureLayerExists("Trap");
         }
 
-        string newImagePath = $"{baseFolder}/{typeInfo.ImageName}";
+        string newImagePath = $"{baseFolder}/{(itemType == ItemType.Item ? "item.png" : "barricade.png")}";
         CopyAndConfigureTexture(originalPath, newImagePath);
+
+        if (useSound != null)
+        {
+            string originalSoundPath = AssetDatabase.GetAssetPath(useSound);
+            string newSoundPath = $"{baseFolder}/Use{Path.GetExtension(originalSoundPath)}";
+            File.Copy(originalSoundPath, newSoundPath, true);
+            AssetDatabase.ImportAsset(newSoundPath);
+        }
 
         Texture2D copiedTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(newImagePath);
         if (copiedTexture == null)
             throw new Exception($"Failed to load copied texture at path: {newImagePath}");
 
-        Material mat = CreateMaterial(copiedTexture, $"{baseFolder}/{folderName}_Mat.mat");
+        Material mat = CreateMaterial(copiedTexture, $"{baseFolder}/{(useCustomFolderName ? customFolderName : fileName)}_Mat.mat");
 
-        GameObject clothingObj = CreateClothingObject(folderName, LayerMask.NameToLayer("Item"), mat);
-        string prefabPath = AssetDatabase.GenerateUniqueAssetPath($"{baseFolder}/Item.prefab");
-        PrefabUtility.SaveAsPrefabAsset(clothingObj, prefabPath);
-        DestroyImmediate(clothingObj);
+        GameObject itemObj = CreateItemObject(fileName, LayerMask.NameToLayer("Item"), mat);
+        string itemPrefabPath = AssetDatabase.GenerateUniqueAssetPath($"{baseFolder}/Item.prefab");
+        PrefabUtility.SaveAsPrefabAsset(itemObj, itemPrefabPath);
+        DestroyImmediate(itemObj);
 
         if (equipAnimation != null || useAnimation != null)
         {
             CreateAnimationPrefab(baseFolder, LayerMask.NameToLayer("Logic"));
         }
 
-        if (specialTypesSet.Contains(clothingType))
+        if (itemType == ItemType.Barricade)
         {
-            CreateSpecialTypeItem(clothingType, folderName, LayerMask.NameToLayer("Enemy"), mat, baseFolder);
+            string specialPrefabPath = AssetDatabase.GenerateUniqueAssetPath($"{baseFolder}/Barricade.prefab");
+            CreateSpecialTypeItem(itemType, fileName, LayerMask.NameToLayer("Barricade"), mat, baseFolder, specialPrefabPath);
         }
+
+        string typeDescription = itemType == ItemType.Item ? $"{itemType} ({itemSubType})" : itemType.ToString();
+        Debug.Log($"✅ Generated {typeDescription} successfully.");
     }
 
-    private void CreateFolderStructure(string typeFolder, string fileName)
+    private void CreateFolderStructure(string fileName)
     {
         string[] pathParts = exportPath.Split('/');
         string currentPath = pathParts[0];
@@ -1357,24 +1097,46 @@ public class ClothingAssetGenerator : EditorWindow
             string nextPath = $"{currentPath}/{pathParts[i]}";
             if (!AssetDatabase.IsValidFolder(nextPath))
             {
-                AssetDatabase.CreateFolder(currentPath, pathParts[i]);
+                string parentFolder = currentPath;
+                string newFolderName = pathParts[i];
+                AssetDatabase.CreateFolder(parentFolder, newFolderName);
             }
             currentPath = nextPath;
         }
 
-        string typePath = $"{exportPath}/{typeFolder}";
-        if (!AssetDatabase.IsValidFolder(typePath))
+        string categoryPath;
+        if (itemType == ItemType.Item)
         {
-            AssetDatabase.CreateFolder(exportPath, typeFolder);
+            categoryPath = $"{exportPath}/{itemSubType}";
+            if (!AssetDatabase.IsValidFolder(categoryPath))
+            {
+                AssetDatabase.CreateFolder(exportPath, itemSubType.ToString());
+            }
+        }
+        else
+        {
+            categoryPath = $"{exportPath}/Barricades";
+            if (!AssetDatabase.IsValidFolder(categoryPath))
+            {
+                AssetDatabase.CreateFolder(exportPath, "Barricades");
+            }
         }
 
         string folderName = useCustomFolderName && !string.IsNullOrEmpty(customFolderName) ? customFolderName : fileName;
-        string baseFolder = $"{typePath}/{folderName}";
+        string baseFolder = $"{categoryPath}/{folderName}";
+
         if (!AssetDatabase.IsValidFolder(baseFolder))
         {
-            Directory.CreateDirectory(baseFolder);
-            AssetDatabase.Refresh();
+            AssetDatabase.CreateFolder(categoryPath, folderName);
         }
+
+        string fullPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", baseFolder));
+        if (!Directory.Exists(fullPath))
+        {
+            Directory.CreateDirectory(fullPath);
+        }
+
+        AssetDatabase.Refresh();
     }
 
     private void CopyAndConfigureTexture(string originalPath, string newPath)
@@ -1411,25 +1173,63 @@ public class ClothingAssetGenerator : EditorWindow
         return mat;
     }
 
-    private GameObject CreateClothingObject(string name, int layer, Material material)
+    private GameObject CreateItemObject(string name, int layer, Material material)
     {
-        GameObject obj = selectedMesh != null
-            ? new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer))
-            : GameObject.CreatePrimitive(PrimitiveType.Quad);
-
-        obj.name = name;
+        GameObject obj = new GameObject(name);
         obj.layer = layer;
         obj.tag = "Item";
 
-        if (selectedMesh != null)
+        if (itemType == ItemType.Item && multiModelTypes.Contains(itemSubType))
         {
-            obj.GetComponent<MeshFilter>().sharedMesh = selectedMesh;
-            obj.GetComponent<MeshRenderer>().sharedMaterial = material;
-            obj.AddComponent<BoxCollider>();
+            GameObject model0 = new GameObject("Model_0");
+            model0.transform.SetParent(obj.transform);
+            model0.layer = layer;
+            model0.tag = "Item";
+
+            if (selectedMesh != null)
+            {
+                MeshFilter mf = model0.AddComponent<MeshFilter>();
+                MeshRenderer mr = model0.AddComponent<MeshRenderer>();
+                mf.sharedMesh = selectedMesh;
+                mr.sharedMaterial = material;
+                model0.AddComponent<BoxCollider>();
+            }
+
+            for (int i = 0; i < additionalMeshes.Count; i++)
+            {
+                if (additionalMeshes[i] != null)
+                {
+                    GameObject additionalModel = new GameObject($"Model_{i + 1}");
+                    additionalModel.transform.SetParent(obj.transform);
+                    additionalModel.layer = layer;
+                    additionalModel.tag = "Item";
+
+                    MeshFilter mf = additionalModel.AddComponent<MeshFilter>();
+                    MeshRenderer mr = additionalModel.AddComponent<MeshRenderer>();
+                    mf.sharedMesh = additionalMeshes[i];
+                    mr.sharedMaterial = material;
+                    additionalModel.AddComponent<BoxCollider>();
+                }
+            }
         }
         else
         {
-            obj.GetComponent<Renderer>().sharedMaterial = material;
+            if (selectedMesh != null)
+            {
+                MeshFilter mf = obj.AddComponent<MeshFilter>();
+                MeshRenderer mr = obj.AddComponent<MeshRenderer>();
+                mf.sharedMesh = selectedMesh;
+                mr.sharedMaterial = material;
+                obj.AddComponent<BoxCollider>();
+            }
+            else
+            {
+                GameObject primitive = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                primitive.transform.SetParent(obj.transform);
+                primitive.transform.localPosition = Vector3.zero;
+                primitive.transform.localRotation = Quaternion.identity;
+                primitive.GetComponent<Renderer>().sharedMaterial = material;
+            }
         }
 
         GameObject icon = new GameObject("Icon");
@@ -1458,6 +1258,9 @@ public class ClothingAssetGenerator : EditorWindow
     private void CreateAnimationPrefab(string baseFolder, int logicLayer)
     {
         GameObject animationObject = new GameObject("Animations");
+        animationObject.layer = logicLayer;
+        animationObject.tag = "Logic";
+
         Animation anim = animationObject.AddComponent<Animation>();
 
         if (equipAnimation != null)
@@ -1471,19 +1274,16 @@ public class ClothingAssetGenerator : EditorWindow
             anim.AddClip(useAnimation, "Use");
         }
 
-        animationObject.layer = logicLayer;
-        animationObject.tag = "Logic";
-
         string animPrefabPath = AssetDatabase.GenerateUniqueAssetPath($"{baseFolder}/Animations.prefab");
         PrefabUtility.SaveAsPrefabAsset(animationObject, animPrefabPath);
         DestroyImmediate(animationObject);
     }
 
-    private void CreateSpecialTypeItem(ClothingType type, string fileName, int enemyLayer, Material material, string baseFolder)
+    private void CreateSpecialTypeItem(ItemType type, string fileName, int barricadeLayer, Material material, string baseFolder, string prefabPath)
     {
         GameObject specialObj = new GameObject(type.ToString());
-        specialObj.tag = "Enemy";
-        specialObj.layer = enemyLayer;
+        specialObj.tag = "Barricade";
+        specialObj.layer = barricadeLayer;
 
         BoxCollider boxCollider = specialObj.AddComponent<BoxCollider>();
         if (selectedMesh != null)
@@ -1494,8 +1294,8 @@ public class ClothingAssetGenerator : EditorWindow
 
         GameObject modelChild = new GameObject("Model_0");
         modelChild.transform.SetParent(specialObj.transform);
-        modelChild.tag = "Enemy";
-        modelChild.layer = enemyLayer;
+        modelChild.tag = "Barricade";
+        modelChild.layer = barricadeLayer;
 
         MeshFilter mf = modelChild.AddComponent<MeshFilter>();
         MeshRenderer mr = modelChild.AddComponent<MeshRenderer>();
@@ -1506,8 +1306,28 @@ public class ClothingAssetGenerator : EditorWindow
             mr.sharedMaterial = material;
         }
 
-        string specialPrefabPath = AssetDatabase.GenerateUniqueAssetPath($"{baseFolder}/{type}.prefab");
-        PrefabUtility.SaveAsPrefabAsset(specialObj, specialPrefabPath);
+        if (addTrapCollider)
+        {
+            GameObject trapChild = new GameObject("Trap");
+            trapChild.transform.SetParent(specialObj.transform);
+            trapChild.tag = "Trap";
+            trapChild.layer = LayerMask.NameToLayer("Trap");
+
+            BoxCollider trapCollider = trapChild.AddComponent<BoxCollider>();
+            if (selectedMesh != null)
+            {
+                trapCollider.center = selectedMesh.bounds.center;
+                trapCollider.size = selectedMesh.bounds.size * 1.2f;
+            }
+            else
+            {
+                trapCollider.size = new Vector3(2f, 2f, 2f);
+            }
+
+            trapCollider.isTrigger = true;
+        }
+
+        PrefabUtility.SaveAsPrefabAsset(specialObj, prefabPath);
         DestroyImmediate(specialObj);
     }
 
@@ -1558,30 +1378,6 @@ public class ClothingAssetGenerator : EditorWindow
         }
     }
 
-    private void RefreshAvailableTextures()
-    {
-        if (string.IsNullOrEmpty(textureFolderPath) || !Directory.Exists(textureFolderPath))
-        {
-            textureFolderPath = "Assets";
-            EditorPrefs.SetString($"{PREFS_PREFIX}TextureFolder", textureFolderPath);
-        }
-
-        try
-        {
-            availableTexturePaths = Directory.GetFiles(textureFolderPath, "*.png", SearchOption.AllDirectories);
-            if (availableTexturePaths.Length > 0 && selectedTextureIndex == -1)
-            {
-                selectedTextureIndex = random.Next(0, availableTexturePaths.Length);
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Error loading textures: {ex.Message}");
-            availableTexturePaths = new string[0];
-            selectedTextureIndex = -1;
-        }
-    }
-
     private void ResetOrbitView()
     {
         previewEulerAngles = new Vector2(0f, 30f);
@@ -1594,74 +1390,62 @@ public class ClothingAssetGenerator : EditorWindow
         customCameraPositions[ViewAngle.Orbit] = defaultPos;
         customCameraRotations[ViewAngle.Orbit] = new Vector3(previewEulerAngles.y, previewEulerAngles.x, 0);
     }
-}
 
-public static class EditorCoroutine
-{
-    public class Coroutine
+    private void UpdatePreviewMaterial(Texture2D texture)
     {
-        public IEnumerator routine;
-        public bool isDone = false;
-        public System.Action onComplete;
+        if (previewMaterial == null)
+        {
+            previewMaterial = new Material(Shader.Find("Standard"));
+            previewMaterial.SetFloat(MATERIAL_MODE, 1);
+            previewMaterial.SetOverrideTag("RenderType", "TransparentCutout");
+            previewMaterial.SetInt(MATERIAL_SRC_BLEND, (int)UnityEngine.Rendering.BlendMode.One);
+            previewMaterial.SetInt(MATERIAL_DST_BLEND, (int)UnityEngine.Rendering.BlendMode.Zero);
+            previewMaterial.SetInt(MATERIAL_ZWRITE, 1);
+            previewMaterial.DisableKeyword("_ALPHABLEND_ON");
+            previewMaterial.EnableKeyword("_ALPHATEST_ON");
+            previewMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            previewMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+            previewMaterial.SetFloat(MATERIAL_CUTOFF, 0.5f);
+        }
+
+        previewMaterial.mainTexture = texture;
     }
 
-    private static List<Coroutine> activeCoroutines = new List<Coroutine>();
-
-    public static Coroutine Start(IEnumerator routine)
+    private void DrawPreviewControls(Rect rect)
     {
-        Coroutine coroutine = new Coroutine { routine = routine };
-
-        if (activeCoroutines.Count == 0)
-        {
-            EditorApplication.update += UpdateCoroutines;
-        }
-
-        activeCoroutines.Add(coroutine);
-        return coroutine;
     }
 
-    private static void UpdateCoroutines()
+    private void DrawMultiViewPreview(Rect totalRect)
     {
-        for (int i = activeCoroutines.Count - 1; i >= 0; i--)
+        float padding = 2f;
+        float thirdWidth = (totalRect.width - padding * 2) / 3f;
+        float thirdHeight = (totalRect.height - padding * 2) / 3f;
+
+        Rect frontRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y, thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(frontRect, ViewAngle.Front);
+
+        Rect backRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y + 2 * (thirdHeight + padding), thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(backRect, ViewAngle.Back);
+
+        Rect leftRect = new Rect(totalRect.x, totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(leftRect, ViewAngle.Left);
+
+        Rect rightRect = new Rect(totalRect.x + 2 * (thirdWidth + padding), totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(rightRect, ViewAngle.Right);
+
+        Rect topRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y, thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(topRect, ViewAngle.Top);
+
+        Rect bottomRect = new Rect(totalRect.x + thirdWidth + padding, totalRect.y + thirdHeight + padding, thirdWidth, thirdHeight);
+        DrawPreviewWithAngle(bottomRect, ViewAngle.Bottom);
+
+        Rect orbitRect = new Rect(totalRect.x + 2 * (thirdWidth + padding), totalRect.y + 2 * (thirdHeight + padding), thirdWidth, thirdHeight);
+        
+        if (Event.current.type != EventType.Repaint)
         {
-            Coroutine coroutine = activeCoroutines[i];
-
-            if (coroutine.isDone || !coroutine.routine.MoveNext())
-            {
-                activeCoroutines.RemoveAt(i);
-                coroutine.isDone = true;
-                coroutine.onComplete?.Invoke();
-            }
+            HandlePreviewInput(orbitRect);
         }
-
-        if (activeCoroutines.Count == 0)
-        {
-            EditorApplication.update -= UpdateCoroutines;
-        }
-    }
-
-    public static void StopAll()
-    {
-        foreach (var coroutine in activeCoroutines)
-        {
-            coroutine.isDone = true;
-        }
-
-        activeCoroutines.Clear();
-        EditorApplication.update -= UpdateCoroutines;
-    }
-
-    public static void Stop(Coroutine coroutine)
-    {
-        if (coroutine != null)
-        {
-            coroutine.isDone = true;
-            activeCoroutines.Remove(coroutine);
-
-            if (activeCoroutines.Count == 0)
-            {
-                EditorApplication.update -= UpdateCoroutines;
-            }
-        }
+        
+        DrawPreviewWithAngle(orbitRect, ViewAngle.Orbit);
     }
 }
