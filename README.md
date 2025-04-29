@@ -31,7 +31,7 @@ For detailed instructions on creating and exporting assets, please see the [User
 
 ## Contributing
 
-Contributions are not actively sought at this time, but bug reports and suggestions are welcome! Please open an issue on the GitHub repository or contact `@SomeAussieGamer` on Discord.
+At the moment, there are one or two updates I would still like to complete for this project, and then I will be out of ideas. Bug reports and suggestions are very welcome! Please open an issue on the GitHub repository or contact `@SomeAussieGamer` on Discord.
 
 ## License
 
