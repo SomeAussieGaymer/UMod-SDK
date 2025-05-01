@@ -39,7 +39,7 @@ This project uses a modified MIT license. The full license text can be found [he
 
 ## Credits & Support
 
-*   **Development:** UMod StudiosTM
+*   **Development:** UMod Studios™
 *   **Contributions/Support:** JienSultan, PuggosWorld
 *   **Join our Discord:** [https://discord.com/invite/uV3fgehP](https://discord.com/invite/uV3fgehP)
 *   **Support our Work:** [https://ko-fi.com/umodstudios](https://ko-fi.com/umodstudios)
