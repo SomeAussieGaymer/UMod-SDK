@@ -36,3 +36,12 @@ At the moment, there are one or two updates I would still like to complete for t
 ## License
 
 This project uses a modified MIT license. The full license text can be found [here](https://github.com/SomeAussieGaymer/UMod-SDK/blob/main/LICENSE). 
+
+## Credits & Support
+
+*   **Development:** UMod StudiosTM
+*   **Contributions/Support:** JienSultan, PuggosWorld
+*   **Join our Discord:** [https://discord.com/invite/uV3fgehP](https://discord.com/invite/uV3fgehP)
+*   **Support our Work:** [https://ko-fi.com/umodstudios](https://ko-fi.com/umodstudios)
+
+
