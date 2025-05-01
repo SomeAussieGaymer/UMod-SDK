@@ -342,11 +342,14 @@ Helps create prefabs and basic components for various types of world objects, in
         6.  Optionally add a `Bush Forage Mesh` if it's harvestable.
         7.  Set `Export Path`.
         8.  Click `Generate Prefabs`.
-*   **Output**: Creates a folder structure (e.g., `Assets/Objects/MyObject/`) containing:
-    *   `MyObject_LOD0.prefab`, `MyObject_LOD1.prefab`, etc. (depending on LOD settings).
-    *   `MyObject_Nav.prefab` (for collision/navmesh baking).
-    *   `MyObject_Skybox.prefab` (optional low-poly version for distant rendering).
-    *   `MyObject_Clip.prefab` (basic collider version).
-    *   Materials/Textures folders with copies/generated assets.
-*   **Components Added**: Automatically adds `MeshCollider`, sets appropriate layers (`Small`, `Medium`, `Large`, `Resource`, `Environment`, `Navmesh`), tags (`Small`, `Medium`, `Large`, `Resource`, `Environment`, `Navmesh`), and potentially `LODGroup`, `Resource` (script), or `FoliageEffect` components.
-*   **Note**: This tool focuses on prefab setup. You still need to create the corresponding `ObjectDefinitionAsset` to define the object's properties and link these generated prefabs.
+
+**Output**: Creates a folder structure (e.g., `Assets/Objects/YourObjectName/`) containing:
+ *   `Object.prefab`: The main prefab. Contains child GameObjects for models (e.g., `Model_0`, `Model_Trunk`). If LODs are configured (Small/Medium/Large), this prefab uses an `LODGroup` to manage the LOD models internally.
+ *   `Nav.prefab`: Contains a `MeshCollider` for NavMesh baking.
+ *   `Skybox.prefab`: (Optional) Contains a simplified model for distant rendering.
+ *   `Materials/`, `Textures/` folders (Trees/Bushes only) with generated materials.
+**Components Added**: Adds `MeshCollider`, sets appropriate Layers/Tags (e.g., "Small", "Navmesh").
+ *   Potentially adds `LODGroup`, `Resource` script, `FoliageEffect` script depending on type and settings.
+
+
+ **Note**: This tool focuses on prefab setup. You still need to create the corresponding `ObjectDefinitionAsset` to define the object's properties and link these generated prefabs.
